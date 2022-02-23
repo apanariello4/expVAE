@@ -1,10 +1,13 @@
 /.vscode
-/__pycache__
+__pycache__
 /checkpoints
 /data
-/dataset
+*.npz
+*.npy
 /ep-17_recon_moving.png
 /fmnist_inlier_3_outlier_6
 /generated.png
-/generated_moving.png
+*.png
 /results
+npz/
+anom/
