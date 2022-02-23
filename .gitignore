@@ -1,0 +1,10 @@
+/.vscode
+/__pycache__
+/checkpoints
+/data
+/dataset
+/ep-17_recon_moving.png
+/fmnist_inlier_3_outlier_6
+/generated.png
+/generated_moving.png
+/results
