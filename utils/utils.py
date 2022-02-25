@@ -18,13 +18,16 @@ from torchvision.datasets import MNIST
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt_dir', type=str, default='./checkpoints')
+    parser.add_argument('--dataset-path', type=str, default='./data/mnist')
+    parser.add_argument('--workers', type=int, default=4)
+
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--dataset-path', type=str, default='./data/mnist')
-    parser.add_argument('--workers', type=int, default=4)
-    parser.add_argument('--latent-dim', type=int, default=32)
+    parser.add_argument('--latent-dim', type=int, default=512)
     parser.add_argument('--alpha-warmup', type=int, default=10)
+    parser.add_argument('--lr-steps', type=int, default=3)
+
     parser.add_argument('--resume', type=str, choices=['best', 'last'])
     parser.add_argument('--one-class', type=int, default=3)
     parser.add_argument('--dataset', default='fmnist', choices=['mnist', 'fmnist'])

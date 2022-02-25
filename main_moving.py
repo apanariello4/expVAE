@@ -24,9 +24,9 @@ def main(args: argparse.Namespace):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    optimizer = Adam(model.parameters(), lr=0.001)
+    optimizer = Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=50, gamma=0.1)
+        optimizer, step_size=args.epochs // args.lr_steps, gamma=0.1)
 
     best_test_loss = float('inf')
     resume_epoch = 0
@@ -52,7 +52,7 @@ def main(args: argparse.Namespace):
 
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='exp_vae', name=f"{name}{model.name}_ld_{args.latent_dim}", config=args)
+        wandb.init(project='exp_vae', name=f"{name}ld_{args.latent_dim}_lr_{args.lr}", config=args)
         wandb.watch(model)
 
     for epoch in range(resume_epoch, args.epochs):
