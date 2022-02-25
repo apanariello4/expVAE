@@ -1,5 +1,4 @@
 import argparse
-from email.policy import default
 import os
 import random
 from pathlib import Path
@@ -9,9 +8,8 @@ import cv2
 import numpy as np
 import torch
 import torchvision.transforms as transforms
-from dataset.OneClassMNIST import OneMNIST
 from dataset.OneClassFMNIST import OneFMNIST
-from dataset.MovingMNIST import MovingMNIST
+from dataset.OneClassMNIST import OneMNIST
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
@@ -133,7 +131,9 @@ def load_fmnist_one_class(class_id: int,
 def load_moving_mnist(
         args: argparse.Namespace) -> Tuple[DataLoader, DataLoader]:
 
-    data_path = Path(args.dataset_path) / 'MovingMNIST'
+    from dataset.MovingMNIST import MovingMNIST
+
+    # data_path = Path(args.dataset_path) / 'MovingMNIST'
 
     train = MovingMNIST(train=True)
     test = MovingMNIST(train=False)
@@ -189,3 +189,7 @@ def save_cam(image: np.ndarray, filename: str,
     imgs = np.concatenate((imgs, gcam_loss), axis=1)
 
     cv2.imwrite(filename, imgs)
+
+
+def get_project_root() -> Path:
+    return Path(__file__).parent.parent

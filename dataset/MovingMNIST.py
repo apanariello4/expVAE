@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.utils.data as data
 from torch import Tensor
+from utils.utils import get_project_root
 
 
 class MovingMNIST(data.Dataset):
@@ -12,10 +13,11 @@ class MovingMNIST(data.Dataset):
         super().__init__()
         self.train = train
         self.anom = anom
-        train_path = Path('/home/nello/expVAE/data/anom_moving_mnist/anommnist_train.npz')
-        test_path = Path('/home/nello/expVAE/data/anom_moving_mnist/anommnist_test.npz')
-        anom_path = Path('/home/nello/expVAE/data/anom_moving_mnist/anomnist_anom.npz')
-        anom_label_path = Path('/home/nello/expVAE/data/anom_moving_mnist/labels_anomal.npy')
+        root = get_project_root()
+        train_path = Path(f'{root}/data/anom_moving_mnist/anommnist_train.npz')
+        test_path = Path(f'{root}/data/anom_moving_mnist/anommnist_test.npz')
+        anom_path = Path(f'{root}/data/anom_moving_mnist/anomnist_anom.npz')
+        anom_label_path = Path(f'{root}/data/anom_moving_mnist/labels_anomal.npy')
 
         if self.anom:
             self.data = np.load(anom_path)['anommnist']
