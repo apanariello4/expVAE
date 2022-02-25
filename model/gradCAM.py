@@ -50,7 +50,7 @@ class gradCAM():
         alpha = F.avg_pool2d(grad_z, kernel_size=grad_z.size(-1))
         return alpha
 
-    def get_attention_map(self, x:Tensor, x_hat:Tensor, mu: Tensor, logvar: Tensor,
+    def get_attention_map(self, x: Tensor, x_hat: Tensor, mu: Tensor, logvar: Tensor,
                           target_layer: str = 'encoder.2') -> Tensor:
         """Generates attention map from gradients."""
 
@@ -80,7 +80,7 @@ class gradCAM():
         alpha = self._get_grad_weights(grad_z)
         beta = self._get_grad_weights(grad_loss)
 
-        maps = F.relu(alpha * conv_output)
+        maps = F.relu(torch.sum((alpha * conv_output), dim=1))
         maps = F.interpolate(
             maps,
             size=self.image_size,

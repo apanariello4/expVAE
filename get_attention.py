@@ -36,7 +36,7 @@ def main(args):
     elif args.dataset == 'mnist':
         _, test_loader = load_mnist_one_class(args.outlier_class, args)
 
-    model_path = Path(args.ckpt_dir) / f'{args.dataset}_model_best.pth'
+    model_path = Path(args.ckpt_dir) / f'{args.dataset}_checkpoint.pth'
     checkpoint = torch.load(model_path)
     mu_avg = checkpoint['mu_avg'].to(device)
     var_avg = checkpoint['var_avg'].to(device)

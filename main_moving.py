@@ -2,20 +2,22 @@
 import argparse
 import os
 from pathlib import Path
-from test import eval
+from test import eval, eval_anom
 
 import torch
+import wandb
 from torch.optim import Adam
-
-from model.conv3dVAE import Conv3dVAE, DebugConv3dVAE
-from train import aggregate, train
-from utils.utils import args, deterministic_behavior, save_checkpoint, load_moving_mnist
 from torchvision.utils import save_image
+
+from model.conv3dVAE import Conv3dVAE
+from train import aggregate, train
+from utils.utils import (args, deterministic_behavior, load_moving_mnist,
+                         save_checkpoint)
 
 
 def main(args: argparse.Namespace):
 
-    train_loader, test_loader = load_moving_mnist(args)
+    train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
     model = Conv3dVAE(latent_dim=args.latent_dim)
 
@@ -48,25 +50,38 @@ def main(args: argparse.Namespace):
     alpha = torch.linspace(0, 1, args.alpha_warmup)
     alpha = torch.cat((alpha, torch.ones(args.epochs - len(alpha))))
 
+    if args.log:
+        name = args.name + '_' if args.name else ''
+        wandb.init(project='exp_vae', name=f"{name}{model.name}_ld_{args.latent_dim}", config=args)
+        wandb.watch(model)
+
     for epoch in range(resume_epoch, args.epochs):
         train(model, train_loader, optimizer, scheduler, device, epoch, alpha[epoch])
-        mu_avg, var_avg = aggregate(model, train_loader, device)
-        test_loss = eval(model, device, test_loader)
-        print(f'Epoch {epoch + 1} val_loss: {test_loss}')
+        mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device)
+        test_loss = eval(model, device, test_loader, epoch)
+        roc_auc = eval_anom(model, device, anom_loader, epoch, min_max_loss)
+        print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC on anomalies: {roc_auc:.4f}')
 
-        if test_loss < best_test_loss or epoch == args.epochs - 1:
-            best_test_loss = test_loss
-            save_checkpoint(
-                model,
-                epoch,
-                optimizer, (mu_avg, var_avg),
-                is_last=epoch == args.epochs - 1,
-                outdir=args.ckpt_dir, args=args)
+        if args.save_checkpoint:
+            if test_loss < best_test_loss or epoch == args.epochs - 1:
+                best_test_loss = test_loss
+                save_checkpoint(
+                    model,
+                    epoch,
+                    optimizer, (mu_avg, var_avg),
+                    is_last=epoch == args.epochs - 1,
+                    outdir=args.ckpt_dir, args=args)
 
         noise = torch.randn(1, args.latent_dim).to(device)
         generated = model.gen_from_noise(noise)
         generated = generated.squeeze(0).transpose(0, 1)
         save_image(generated, './generated_moving.png')
+
+        if wandb.run:
+            wandb.log({
+                'mu_avg': mu_avg, 'var_avg': var_avg,
+                'img_from_noise': wandb.Image(generated, caption='Generated from noise')
+            }, step=epoch)
 
 
 if __name__ == '__main__':

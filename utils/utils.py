@@ -21,7 +21,7 @@ def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--ckpt_dir', type=str, default='./checkpoints')
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--dataset-path', type=str, default='./data/mnist')
     parser.add_argument('--workers', type=int, default=4)
@@ -30,6 +30,9 @@ def args() -> argparse.Namespace:
     parser.add_argument('--resume', type=str, choices=['best', 'last'])
     parser.add_argument('--one-class', type=int, default=3)
     parser.add_argument('--dataset', default='fmnist', choices=['mnist', 'fmnist'])
+    parser.add_argument('--log', action='store_true')
+    parser.add_argument('--save-checkpoint', action='store_true')
+    parser.add_argument('--name', type=str)
     return parser.parse_args()
 
 
@@ -41,10 +44,11 @@ def save_checkpoint(model, epoch: int, optimizer: torch.optim,
     dataset = args.dataset
     if model.name == 'conv3dVAE':
         dataset = 'moving'
+    experiment = args.name + '_' if args.name else ''
     base_path = os.path.join(
-        outdir, f'{dataset}_{model.name}_{args.latent_dim}_')
+        outdir, f'{experiment}{dataset}_{model.name}_{args.latent_dim}_')
     checkpoint_file = base_path + 'checkpoint.pth'
-    best_file = base_path + 'model_best.pth'
+    best_file = base_path + 'best.pth'
     state = {
         'epoch': epoch + 1,
         'state_dict': model.state_dict(),
@@ -133,13 +137,16 @@ def load_moving_mnist(
 
     train = MovingMNIST(train=True)
     test = MovingMNIST(train=False)
+    anom = MovingMNIST(train=False, anom=True)
 
     train_loader = DataLoader(
         train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
     test_loader = DataLoader(
         test, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    anom_loader = DataLoader(
+        anom, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
-    return train_loader, test_loader
+    return train_loader, test_loader, anom_loader
 
 
 def deterministic_behavior(seed: int = 1) -> None:
