@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 from model.vae_loss import vae_loss, vae_loss_normalized
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, average_precision_score
 
 
 def save_one_recon_batch(model, device, test_loader, epoch):
@@ -62,7 +62,7 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int) -> fl
 
 
 def eval_anom(model, device: torch.device, anom_loader: DataLoader,
-              epoch: int, min_max_train: Tuple[float]) -> float:
+              epoch: int, min_max_train: Tuple[float]) -> Tuple[float, float]:
 
     model.eval()
     labels_scores = []
@@ -85,11 +85,13 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
             labels, scores = zip(*labels_scores)
             roc_auc = roc_auc_score(labels, scores)
+            ap = average_precision_score(labels, scores)
 
             if wandb.run:
-                wandb.log({'roc_auc': roc_auc}, step=epoch)
+                wandb.log({'roc_auc': roc_auc,
+                           'ap': ap}, step=epoch)
 
-            return roc_auc
+            return roc_auc, ap
 
 
 if __name__ == '__main__':
