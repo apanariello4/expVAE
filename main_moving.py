@@ -59,8 +59,8 @@ def main(args: argparse.Namespace):
         train(model, train_loader, optimizer, scheduler, device, epoch, alpha[epoch])
         mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device)
         test_loss = eval(model, device, test_loader, epoch)
-        roc_auc = eval_anom(model, device, anom_loader, epoch, min_max_loss)
-        print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC on anomalies: {roc_auc:.4f}')
+        roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss)
+        print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}')
 
         if args.save_checkpoint:
             if test_loss < best_test_loss or epoch == args.epochs - 1:
