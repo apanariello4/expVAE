@@ -13,3 +13,4 @@ npz/
 anom/
 wandb/
 *.pyc
+ue.ipynb

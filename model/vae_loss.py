@@ -46,11 +46,11 @@ def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
     sample_recon_err = F.binary_cross_entropy(x_recon, x, reduction='none').squeeze()
     batch_size, depth = sample_recon_err.shape[0], sample_recon_err.shape[1]
     sample_recon_err = sample_recon_err.view(batch_size, depth, -1).sum(-1)
-    norm_recon_err = min_max_normalization(sample_recon_err, *min_max[:2])
+    recon_err_normalized = min_max_normalization(sample_recon_err, *min_max[:2])
 
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
     kld_normalized = min_max_normalization(kld, *min_max[2:])
 
-    loss = norm_recon_err.sum() + alpha * kld_normalized.sum()
+    loss = recon_err_normalized.sum() + alpha * kld_normalized.sum()
 
-    return loss
+    return loss, recon_err_normalized, kld_normalized
