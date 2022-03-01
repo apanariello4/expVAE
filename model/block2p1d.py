@@ -3,7 +3,7 @@ from torch import Tensor
 # from model.pixel_shuffle import PixelShuffle3d
 
 
-def conv1x3x3(in_planes, mid_planes, stride=1):
+def conv1x3x3(in_planes: int, mid_planes: int, stride: int = 1) -> nn.Conv3d:
     return nn.Conv3d(in_planes,
                      mid_planes,
                      kernel_size=(1, 3, 3),
@@ -12,7 +12,7 @@ def conv1x3x3(in_planes, mid_planes, stride=1):
                      bias=False)
 
 
-def conv3x1x1(mid_planes, planes, stride=1):
+def conv3x1x1(mid_planes: int, planes: int, stride: int = 1) -> nn.Conv3d:
     return nn.Conv3d(mid_planes,
                      planes,
                      kernel_size=(3, 1, 1),
@@ -21,7 +21,7 @@ def conv3x1x1(mid_planes, planes, stride=1):
                      bias=False)
 
 
-def conv1x1x1(in_planes, out_planes, stride=1):
+def conv1x1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv3d:
     return nn.Conv3d(in_planes,
                      out_planes,
                      kernel_size=1,
@@ -30,8 +30,11 @@ def conv1x1x1(in_planes, out_planes, stride=1):
 
 
 class Encoder2p1Block(nn.Module):
-    def __init__(self, in_channels, out_channels, stride, use_bias=False):
+    def __init__(self, in_channels: int, out_channels: int, stride: int,
+                 activation: nn.Module = nn.ReLU(inplace=True)):
         super(Encoder2p1Block, self).__init__()
+
+        self.activation = activation
 
         n_3d_parameters1 = in_channels * out_channels * 3 * 3 * 3
         n_2p1d_parameters1 = in_channels * 3 * 3 + 3 * out_channels
@@ -53,32 +56,30 @@ class Encoder2p1Block(nn.Module):
         self.conv2_t = conv3x1x1(mid_planes2, out_channels)
         self.bn2_t = nn.BatchNorm3d(out_channels)
 
-        self.relu = nn.ReLU(inplace=True)
-
         self.downsample = nn.Sequential(
             conv1x1x1(in_channels, out_channels, stride),
             nn.BatchNorm3d(out_channels)
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         residual = x
 
         out = self.conv1_s(x)
         out = self.bn1_s(out)
-        out = self.relu(out)
+        out = self.activation(out)
         out = self.conv1_t(out)
         out = self.bn1_t(out)
-        out = self.relu(out)
+        out = self.activation(out)
 
         out = self.conv2_s(out)
         out = self.bn2_s(out)
-        out = self.relu(out)
+        out = self.activation(out)
         out = self.conv2_t(out)
         out = self.bn2_t(out)
 
         residual = self.downsample(x)
         out += residual
-        out = self.relu(out)
+        out = self.activation(out)
 
         return out
 
@@ -100,7 +101,8 @@ class PixelShuffle2p1D(nn.Module):
 
 class Decoder2p1Block(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, upsample_t: int = None,
-                 upsample_shape: tuple = None, upsample_w_h: int = 2):
+                 upsample_shape: tuple = None, upsample_w_h: int = 2,
+                 activation: nn.Module = nn.ReLU(inplace=True)):
         super(Decoder2p1Block, self).__init__()
 
         assert upsample_t or upsample_shape, "Either upsample_t or upsample_shape must be specified"
@@ -114,6 +116,8 @@ class Decoder2p1Block(nn.Module):
         elif upsample_shape:
             self.ups1_t = nn.Upsample(size=upsample_shape, mode='trilinear', align_corners=False)
             self.ups_res = nn.Upsample(size=upsample_shape, mode='trilinear', align_corners=False)
+
+        self.activation = activation
 
         out1 = out_channels * (upsample_w_h**2)
 
@@ -131,30 +135,28 @@ class Decoder2p1Block(nn.Module):
         self.conv2_t = conv3x1x1(out_channels, out_channels)
         self.bn2_t = nn.BatchNorm3d(out_channels)
 
-        self.relu = nn.ReLU(inplace=True)
-
         self.conv_res = conv1x1x1(in_channels, out_channels, stride=1)
 
         self.bn_res = nn.BatchNorm3d(out_channels)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
 
         residual = x
 
         out = self.conv1_s(x)
         out = self.pxl1_s(out)
         out = self.bn1_s(out)
-        out = self.relu(out)
+        out = self.activation(out)
 
         out = self.conv1_t(out)
         out = self.bn1_t(out)
-        out = self.relu(out)
+        out = self.activation(out)
 
         out = self.ups1_t(out)
 
         out = self.conv2_s(out)
         out = self.bn2_s(out)
-        out = self.relu(out)
+        out = self.activation(out)
         out = self.conv2_t(out)
         out = self.bn2_t(out)
 
@@ -163,7 +165,7 @@ class Decoder2p1Block(nn.Module):
         residual = self.bn_res(residual)
 
         out += residual
-        out = self.relu(out)
+        out = self.activation(out)
 
         return out
 

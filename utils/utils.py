@@ -27,6 +27,8 @@ def args() -> argparse.Namespace:
     parser.add_argument('--latent-dim', type=int, default=512)
     parser.add_argument('--alpha-warmup', type=int, default=10)
     parser.add_argument('--lr-steps', type=int, default=3)
+    parser.add_argument('--activation', type=str, default='relu',
+                        choices=['relu', 'elu', 'silu', 'leakyrelu'])
 
     parser.add_argument('--resume', type=str, choices=['best', 'last'])
     parser.add_argument('--one-class', type=int, default=3)

@@ -64,7 +64,7 @@ class ResidualLinear(nn.Module):
         super(ResidualLinear, self).__init__()
 
         mid_features = out_features // 2
-
+        # TODO batchnorm?
         self.fc1 = nn.Linear(in_features, mid_features, bias=bias)
         self.act = nn.ReLU()
         self.fc2 = nn.Linear(mid_features, out_features, bias=bias)
@@ -82,29 +82,34 @@ class ResidualLinear(nn.Module):
 
 
 class Conv3dVAE(nn.Module):
-    def __init__(self, latent_dim: int):
+    def __init__(self, latent_dim: int, activation: str = 'relu'):
         super(Conv3dVAE, self).__init__()
+
+        act = {'relu': nn.ReLU(inplace=True),
+               'leakyrelu': nn.LeakyReLU(inplace=True),
+               'elu': nn.ELU(inplace=True),
+               'silu': nn.SiLU(inplace=True)}[activation]
 
         self.latent_dim = latent_dim
         self.name = 'conv3dVAE'
 
         self.encoder = nn.Sequential(
 
-            Encoder2p1Block(in_channels=1, out_channels=16, stride=1),
+            Encoder2p1Block(in_channels=1, out_channels=16, stride=1, activation=act),
 
-            Encoder2p1Block(in_channels=16, out_channels=16, stride=2),
-            Encoder2p1Block(in_channels=16, out_channels=16, stride=1),
-            Encoder2p1Block(in_channels=16, out_channels=32, stride=2),
-            Encoder2p1Block(in_channels=32, out_channels=32, stride=1),
-            Encoder2p1Block(in_channels=32, out_channels=64, stride=2),
-            Encoder2p1Block(in_channels=64, out_channels=64, stride=1),
+            Encoder2p1Block(in_channels=16, out_channels=16, stride=2, activation=act),
+            Encoder2p1Block(in_channels=16, out_channels=16, stride=1, activation=act),
+            Encoder2p1Block(in_channels=16, out_channels=32, stride=2, activation=act),
+            Encoder2p1Block(in_channels=32, out_channels=32, stride=1, activation=act),
+            Encoder2p1Block(in_channels=32, out_channels=64, stride=2, activation=act),
+            Encoder2p1Block(in_channels=64, out_channels=64, stride=1, activation=act),
 
             nn.AdaptiveAvgPool3d((1, 8, 8)),
             nn.Flatten(start_dim=1, end_dim=2),
-            Encoder2DBlock(in_channels=64, out_channels=128, stride=2),  # b,128,4,4
+            Encoder2DBlock(in_channels=64, out_channels=128, stride=2, activation=act),  # b,128,4,4
 
             nn.Flatten(),
-            ResidualLinear(128 * 4 * 4, 1024),
+            ResidualLinear(128 * 4 * 4, 1024, activation=act),
         )
 
         # hidden => mu
@@ -118,16 +123,16 @@ class Conv3dVAE(nn.Module):
 
             nn.Unflatten(1, (64, 2, 4, 4)),
 
-            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2),
-            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=1, upsample_w_h=1),
-            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2),
-            Decoder2p1Block(in_channels=64, out_channels=32, upsample_t=1, upsample_w_h=1),
-            Decoder2p1Block(in_channels=32, out_channels=32, upsample_shape=(20, 32, 32)),
-            Decoder2p1Block(in_channels=32, out_channels=32, upsample_t=1, upsample_w_h=1),
-            Decoder2p1Block(in_channels=32, out_channels=16, upsample_shape=(20, 64, 64)),
-            Decoder2p1Block(in_channels=16, out_channels=16, upsample_t=1, upsample_w_h=1),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2, activation=act),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=1, upsample_w_h=1, activation=act),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2, activation=act),
+            Decoder2p1Block(in_channels=64, out_channels=32, upsample_t=1, upsample_w_h=1, activation=act),
+            Decoder2p1Block(in_channels=32, out_channels=32, upsample_shape=(20, 32, 32), activation=act),
+            Decoder2p1Block(in_channels=32, out_channels=32, upsample_t=1, upsample_w_h=1, activation=act),
+            Decoder2p1Block(in_channels=32, out_channels=16, upsample_shape=(20, 64, 64), activation=act),
+            Decoder2p1Block(in_channels=16, out_channels=16, upsample_t=1, upsample_w_h=1, activation=act),
 
-            nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0),
+            nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0, activation=act),
             nn.Sigmoid()
         )
 

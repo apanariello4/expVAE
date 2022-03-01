@@ -53,4 +53,4 @@ def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
 
     loss = norm_recon_err.sum() + alpha * kld_normalized.sum()
 
-    return loss, norm_recon_err
+    return loss

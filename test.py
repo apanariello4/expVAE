@@ -73,18 +73,17 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
             recon_batch, mu, logvar = model(data)
 
-            loss, scores = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
-            scores = F.softmax(scores, dim=1)
+            anomaly_score = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
 
             labels_scores += list(
                 zip(target.view(-1).cpu().data.numpy().tolist(),
-                    scores.view(-1).cpu().data.numpy().tolist())
+                    anomaly_score.view(-1).cpu().data.numpy().tolist())
             )
             pbar.update()
 
-        labels, scores = zip(*labels_scores)
-        roc_auc = roc_auc_score(labels, scores)
-        ap = average_precision_score(labels, scores)
+        labels, anomaly_score = zip(*labels_scores)
+        roc_auc = roc_auc_score(labels, anomaly_score)
+        ap = average_precision_score(labels, anomaly_score)
 
         if wandb.run:
             wandb.log({'roc_auc': roc_auc,

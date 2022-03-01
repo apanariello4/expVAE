@@ -53,7 +53,7 @@ def main(args: argparse.Namespace):
 
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='exp_vae', name=f"{name}ld_{args.latent_dim}_lr_{args.lr}", config=args)
+        wandb.init(project='exp_vae', name=f"{name}_{args.activation}", config=args)
         wandb.watch(model)
 
     for epoch in range(resume_epoch, args.epochs):
@@ -61,7 +61,6 @@ def main(args: argparse.Namespace):
         train(model, train_loader, optimizer, scheduler, device, epoch, alpha[epoch])
         mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device)
         test_loss = eval(model, device, test_loader, epoch)
-        test_loss = .0
         roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss)
         print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}\tEpoch time {time.time() - t0:.4f}')
 
