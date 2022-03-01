@@ -1,9 +1,9 @@
 import torch.nn as nn
 
 
-class EncoderBasic2DBlock(nn.Module):
+class Encoder2DBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
-        super(EncoderBasic2DBlock, self).__init__()
+        super(Encoder2DBlock, self).__init__()
         kernel_size = 3
         padding = 1
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
@@ -29,9 +29,9 @@ class EncoderBasic2DBlock(nn.Module):
         return self.silu(x + self.downsample(residual))
 
 
-class DecoderBasic2DBlock(nn.Module):
+class Decoder2DBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride):
-        super(DecoderBasic2DBlock, self).__init__()
+        super(Decoder2DBlock, self).__init__()
         kernel_size = 3
         padding = 1
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)

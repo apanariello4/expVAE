@@ -1,14 +1,15 @@
 
 import argparse
 import os
+import time
 from pathlib import Path
 from test import eval, eval_anom
 
 import torch
-import wandb
 from torch.optim import Adam
 from torchvision.utils import save_image
 
+import wandb
 from model.conv3dVAE import Conv3dVAE
 from train import aggregate, train
 from utils.utils import (args, deterministic_behavior, load_moving_mnist,
@@ -56,11 +57,13 @@ def main(args: argparse.Namespace):
         wandb.watch(model)
 
     for epoch in range(resume_epoch, args.epochs):
+        t0 = time.time()
         train(model, train_loader, optimizer, scheduler, device, epoch, alpha[epoch])
         mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device)
         test_loss = eval(model, device, test_loader, epoch)
+        test_loss = .0
         roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss)
-        print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}')
+        print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}\tEpoch time {time.time() - t0:.4f}')
 
         if args.save_checkpoint:
             if test_loss < best_test_loss or epoch == args.epochs - 1:

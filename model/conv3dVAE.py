@@ -8,55 +8,77 @@ from torch import Tensor
 from torch.nn import functional as F
 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_path)
-from model.block2d import EncoderBasic2DBlock
+from model.block2d import Encoder2DBlock
 from model.block3d import EncoderBasic3DBlock, DecoderBasic3DBlock
+from model.block2p1d import Encoder2p1Block, Decoder2p1Block
 
 from model.pixel_shuffle import PixelShuffle3d
 
 
-class DebugConv3dVAE(nn.Module):
-    def __init__(self, latent_dim: int):
-        super(DebugConv3dVAE, self).__init__()
+# class DebugConv3dVAE(nn.Module):
+#     def __init__(self, latent_dim: int):
+#         super(DebugConv3dVAE, self).__init__()
 
-        self.latent_dim = latent_dim
+#         self.latent_dim = latent_dim
 
-        self.encoder = nn.Sequential(
-            nn.Flatten(),
-        )
+#         self.encoder = nn.Sequential(
+#             nn.Flatten(),
+#         )
 
-        # flatten: (1,128,7,7) -> (1,128*7*7) = (1,6272)
-        # hidden => mu
-        self.fc1 = nn.Linear(4096, self.latent_dim)
+#         # flatten: (1,128,7,7) -> (1,128*7*7) = (1,6272)
+#         # hidden => mu
+#         self.fc1 = nn.Linear(4096, self.latent_dim)
 
-        # hidden => logvar
-        self.fc2 = nn.Linear(4096, self.latent_dim)
+#         # hidden => logvar
+#         self.fc2 = nn.Linear(4096, self.latent_dim)
 
-        self.decoder = nn.Sequential(
-            nn.Linear(self.latent_dim, 4096),
-            nn.Sigmoid(),
-            nn.Unflatten(1, (1, 64, 64)),
-        )
+#         self.decoder = nn.Sequential(
+#             nn.Linear(self.latent_dim, 4096),
+#             nn.Sigmoid(),
+#             nn.Unflatten(1, (1, 64, 64)),
+#         )
 
-    def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        h = self.encoder(x[:, :, 0, :, :])
-        mu, logvar = self.fc1(h), self.fc2(h)
-        return mu, logvar
+#     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+#         h = self.encoder(x[:, :, 0, :, :])
+#         mu, logvar = self.fc1(h), self.fc2(h)
+#         return mu, logvar
 
-    def decode(self, x: Tensor) -> Tensor:
-        return self.decoder(x).unsqueeze(1).repeat((1, 1, 20, 1, 1))
+#     def decode(self, x: Tensor) -> Tensor:
+#         return self.decoder(x).unsqueeze(1).repeat((1, 1, 20, 1, 1))
+
+#     def forward(self, x):
+#         mu, logvar = self.encode(x)
+#         z = self.reparameterize(mu, logvar)
+#         return self.decode(z), mu, logvar
+
+#     def gen_from_noise(self, z):
+#         return self.decode(z)
+
+#     def reparameterize(self, mu, logvar):
+#         std = torch.exp(0.5 * logvar)
+#         eps = torch.randn_like(std)
+#         return mu + eps * std
+
+class ResidualLinear(nn.Module):
+    def __init__(self, in_features, out_features, bias=True):
+        super(ResidualLinear, self).__init__()
+
+        mid_features = out_features // 2
+
+        self.fc1 = nn.Linear(in_features, mid_features, bias=bias)
+        self.act = nn.ReLU()
+        self.fc2 = nn.Linear(mid_features, out_features, bias=bias)
+
+        self.residual = nn.Linear(in_features, out_features, bias=bias)
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        residual = self.residual(x)
 
-    def gen_from_noise(self, z):
-        return self.decode(z)
+        out = self.fc1(x)
+        out = self.act(out)
+        out = self.fc2(out)
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
+        return self.act(out + residual)
 
 
 class Conv3dVAE(nn.Module):
@@ -66,100 +88,75 @@ class Conv3dVAE(nn.Module):
         self.latent_dim = latent_dim
         self.name = 'conv3dVAE'
 
-        self.encoder1 = nn.Sequential(
-            EncoderBasic3DBlock(in_channels=1, out_channels=16, stride=2),
-            EncoderBasic3DBlock(in_channels=16, out_channels=32, stride=2),
-            EncoderBasic3DBlock(in_channels=32, out_channels=64, stride=2),
+        self.encoder = nn.Sequential(
+
+            Encoder2p1Block(in_channels=1, out_channels=16, stride=1),
+
+            Encoder2p1Block(in_channels=16, out_channels=16, stride=2),
+            Encoder2p1Block(in_channels=16, out_channels=16, stride=1),
+            Encoder2p1Block(in_channels=16, out_channels=32, stride=2),
+            Encoder2p1Block(in_channels=32, out_channels=32, stride=1),
+            Encoder2p1Block(in_channels=32, out_channels=64, stride=2),
+            Encoder2p1Block(in_channels=64, out_channels=64, stride=1),
+
             nn.AdaptiveAvgPool3d((1, 8, 8)),
             nn.Flatten(start_dim=1, end_dim=2),
-            EncoderBasic2DBlock(in_channels=64, out_channels=128, stride=2),  # b,128,4,4
-        )
-        self.encoder2 = nn.Sequential(
+            Encoder2DBlock(in_channels=64, out_channels=128, stride=2),  # b,128,4,4
+
             nn.Flatten(),
-            nn.Linear(2048, 1024),
-            nn.ReLU()
+            ResidualLinear(128 * 4 * 4, 1024),
         )
 
         # hidden => mu
-        self.fc1 = nn.Linear(1024, self.latent_dim)
+        self.fc1 = nn.Linear(1024, latent_dim)
 
         # hidden => logvar
-        self.fc2 = nn.Linear(1024, self.latent_dim)
+        self.fc2 = nn.Linear(1024, latent_dim)
 
         self.decoder = nn.Sequential(
-            nn.Linear(self.latent_dim, 1024),
-            nn.ReLU(),
+            ResidualLinear(latent_dim, 128 * 4 * 4),
 
-            nn.Linear(1024, 2048),
-            nn.ReLU(),
+            nn.Unflatten(1, (64, 2, 4, 4)),
 
-            nn.Unflatten(1, (32, 4, 4, 4)),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=1, upsample_w_h=1),
+            Decoder2p1Block(in_channels=64, out_channels=64, upsample_t=2),
+            Decoder2p1Block(in_channels=64, out_channels=32, upsample_t=1, upsample_w_h=1),
+            Decoder2p1Block(in_channels=32, out_channels=32, upsample_shape=(20, 32, 32)),
+            Decoder2p1Block(in_channels=32, out_channels=32, upsample_t=1, upsample_w_h=1),
+            Decoder2p1Block(in_channels=32, out_channels=16, upsample_shape=(20, 64, 64)),
+            Decoder2p1Block(in_channels=16, out_channels=16, upsample_t=1, upsample_w_h=1),
 
-            DecoderBasic3DBlock(in_channels=32, out_channels=32, use_pixel_shuffle=True),
-            DecoderBasic3DBlock(in_channels=32, out_channels=32, use_pixel_shuffle=True),
-            DecoderBasic3DBlock(in_channels=32, out_channels=64, use_pixel_shuffle=False,
-                                upsample_shape=(20, 32, 32)),
-            DecoderBasic3DBlock(in_channels=64, out_channels=64, use_pixel_shuffle=False,
-                                upsample_shape=(20, 64, 64)),
-
-            nn.Conv3d(64, 1, kernel_size=1, stride=1, padding=0),
+            nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0),
             nn.Sigmoid()
         )
 
+        print(f'Model parameters: {self.count_parameters():,}')
+
     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        self.last_conv = self.encoder1(x)
-        h = self.encoder2(self.last_conv)
+        h = self.encoder(x)
         mu, logvar = self.fc1(h), self.fc2(h)
         return mu, logvar
 
     def decode(self, x: Tensor) -> Tensor:
         return self.decoder(x)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tuple[Tensor]:
         self.image_size = x.size()[-1]
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        # att_loss = self.attention_loss(z)
         return self.decode(z), mu, logvar
 
-    def gen_from_noise(self, z):
+    def gen_from_noise(self, z: Tensor) -> Tensor:
         return self.decode(z)
 
-    def reparameterize(self, mu, logvar):
+    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    @staticmethod
-    def normalize(tensor: Tensor) -> Tensor:
-        # torch.norm(tensor, dim=(2, 3), keepdim=True)
-        return tensor / torch.norm(tensor)
-
-    def _get_grad_weights(self, grad_z: Tensor) -> Tensor:
-        """Applies the GAP operation to the gradients to obtain weights alpha."""
-
-        alpha = self.normalize(grad_z)
-        alpha = F.avg_pool2d(grad_z, kernel_size=grad_z.size(-1))
-        return alpha
-
-    def get_att_maps(self, z):
-        grad_z = torch.autograd.grad(z, self.last_conv,
-                                     grad_outputs=torch.ones_like(z), only_inputs=True)[0]
-
-        alpha = self._get_grad_weights(grad_z)
-        maps = F.relu(alpha * grad_z)
-        maps = maps.unsqueeze(2)
-        maps = F.interpolate(
-            maps,
-            size=(20, self.image_size, self.image_size),
-            mode='trilinear',
-            align_corners=False)
-        return maps
-
-    def attention_loss(self, z):
-        maps = self.get_att_maps(z)
-        a = torch.sum(min(maps, dim=1))
-        return
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 if __name__ == '__main__':

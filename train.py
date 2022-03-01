@@ -19,30 +19,29 @@ def aggregate(model, train_loader: DataLoader,
     min_recon, min_kld = float('inf'), float('inf')
     max_recon, max_kld = float('-inf'), float('-inf')
 
-    with torch.no_grad():
-        with tqdm(total=len(train_loader), desc='Aggregate') as pbar:
-            for it, (data, _) in enumerate(train_loader):
+    with torch.no_grad(), tqdm(total=len(train_loader), desc='Aggregate') as pbar:
+        for data, _ in train_loader:
 
-                data = data.to(device)
-                x_hat, mu, logvar = model(data)
+            data = data.to(device)
+            x_hat, mu, logvar = model(data)
 
-                _, min_max_loss = vae_loss(x_hat, data, mu, logvar, return_min_max=True)
-                var = torch.exp(logvar)
+            _, min_max_loss = vae_loss(x_hat, data, mu, logvar, return_min_max=True)
+            var = torch.exp(logvar)
 
-                var_agg += var.sum(dim=0)
-                mu_agg += mu.sum(dim=0)
-                mu_squared_agg += (mu ** 2).sum(dim=0)
+            var_agg += var.sum(dim=0)
+            mu_agg += mu.sum(dim=0)
+            mu_squared_agg += (mu ** 2).sum(dim=0)
 
-                counter += len(data)
-                if min_max_loss[0] < min_recon:
-                    min_recon = min_max_loss[0]
-                if min_max_loss[1] > max_recon:
-                    max_recon = min_max_loss[1]
-                if min_max_loss[2] < min_kld:
-                    min_kld = min_max_loss[2]
-                if min_max_loss[3] > max_kld:
-                    max_kld = min_max_loss[3]
-                pbar.update()
+            counter += len(data)
+            if min_max_loss[0] < min_recon:
+                min_recon = min_max_loss[0]
+            if min_max_loss[1] > max_recon:
+                max_recon = min_max_loss[1]
+            if min_max_loss[2] < min_kld:
+                min_kld = min_max_loss[2]
+            if min_max_loss[3] > max_kld:
+                max_kld = min_max_loss[3]
+            pbar.update()
 
     mu_agg /= counter
 

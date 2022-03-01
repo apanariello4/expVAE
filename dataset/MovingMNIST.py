@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 from typing import Tuple
 
@@ -5,6 +7,8 @@ import numpy as np
 import torch
 import torch.utils.data as data
 from torch import Tensor
+base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(base_path)
 from utils.utils import get_project_root
 
 

@@ -13,13 +13,13 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 
 def save_one_recon_batch(model, device, test_loader, epoch):
     with torch.no_grad():
-        for it, (x, _) in enumerate(test_loader):
+        for x, _ in test_loader:
             model.eval()
             x = x.to(device)
 
             x_hat, _, _ = model(x)
 
-            imgs = torch.cat([x[0].transpose(0, 1), x_hat[0].transpose(0, 1)], dim=0)
+            imgs = gen_one_recon_img(x[0], x_hat[0])
 
             save_image(imgs, f'ep-{epoch}_recon_moving.png', nrow=10)
 
@@ -66,32 +66,31 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
     model.eval()
     labels_scores = []
-    with tqdm(total=len(anom_loader), desc='Eval anomalous') as pbar:
-        with torch.no_grad():
-            for data, target in anom_loader:
-                data = data.to(device)
-                target = target.to(device)
+    with torch.no_grad(), tqdm(total=len(anom_loader), desc='Eval anomalous') as pbar:
+        for data, target in anom_loader:
+            data = data.to(device)
+            target = target.to(device)
 
-                recon_batch, mu, logvar = model(data)
+            recon_batch, mu, logvar = model(data)
 
-                loss, scores = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
-                scores = F.softmax(scores, dim=1)
+            loss, scores = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
+            scores = F.softmax(scores, dim=1)
 
-                labels_scores += list(
-                    zip(target.view(-1).cpu().data.numpy().tolist(),
-                        scores.view(-1).cpu().data.numpy().tolist())
-                )
-                pbar.update()
+            labels_scores += list(
+                zip(target.view(-1).cpu().data.numpy().tolist(),
+                    scores.view(-1).cpu().data.numpy().tolist())
+            )
+            pbar.update()
 
-            labels, scores = zip(*labels_scores)
-            roc_auc = roc_auc_score(labels, scores)
-            ap = average_precision_score(labels, scores)
+        labels, scores = zip(*labels_scores)
+        roc_auc = roc_auc_score(labels, scores)
+        ap = average_precision_score(labels, scores)
 
-            if wandb.run:
-                wandb.log({'roc_auc': roc_auc,
-                           'ap': ap}, step=epoch)
+        if wandb.run:
+            wandb.log({'roc_auc': roc_auc,
+                       'ap': ap}, step=epoch)
 
-            return roc_auc, ap
+        return roc_auc, ap
 
 
 if __name__ == '__main__':
@@ -99,9 +98,11 @@ if __name__ == '__main__':
     from utils.utils import args, load_moving_mnist
     arg = args()
     model = Conv3dVAE(latent_dim=512)
-    checkpoint = torch.load('./checkpoints/moving_conv3dVAE_512_model_best.pth')
+    checkpoint = torch.load('./checkpoints/residual2p1dfull_moving_conv3dVAE_512_best.pth')
     model.load_state_dict(checkpoint['state_dict'])
     arg.batch_size = 1
-    _, test_loader = load_moving_mnist(arg)
+    _, test_loader, _ = load_moving_mnist(arg)
+
+    roc, ap = eval_anom(model.to(torch.device('cuda')), torch.device('cuda'), test_loader, 0, (0, 1,))
 
     save_one_recon_batch(model, torch.device('cpu'), test_loader, checkpoint['epoch'])

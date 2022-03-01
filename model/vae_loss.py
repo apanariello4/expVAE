@@ -37,7 +37,7 @@ def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
 
 
 def min_max_normalization(x: Tensor, new_min: float, new_max: float) -> Tensor:
-    return (x - x.min()) / (x.max() - x.min()) * (new_max - new_min) + new_min
+    return (x - new_min) / (new_max - new_min)
 
 
 def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
