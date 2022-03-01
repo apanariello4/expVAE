@@ -6,80 +6,14 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
+
 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_path)
+from model.linear import ResidualLinear
 from model.block2d import Encoder2DBlock
-from model.block3d import EncoderBasic3DBlock, DecoderBasic3DBlock
-from model.block2p1d import Encoder2p1Block, Decoder2p1Block
-
+from model.block2p1d import Decoder2p1Block, Encoder2p1Block
+from model.block3d import DecoderBasic3DBlock, EncoderBasic3DBlock
 from model.pixel_shuffle import PixelShuffle3d
-
-
-# class DebugConv3dVAE(nn.Module):
-#     def __init__(self, latent_dim: int):
-#         super(DebugConv3dVAE, self).__init__()
-
-#         self.latent_dim = latent_dim
-
-#         self.encoder = nn.Sequential(
-#             nn.Flatten(),
-#         )
-
-#         # flatten: (1,128,7,7) -> (1,128*7*7) = (1,6272)
-#         # hidden => mu
-#         self.fc1 = nn.Linear(4096, self.latent_dim)
-
-#         # hidden => logvar
-#         self.fc2 = nn.Linear(4096, self.latent_dim)
-
-#         self.decoder = nn.Sequential(
-#             nn.Linear(self.latent_dim, 4096),
-#             nn.Sigmoid(),
-#             nn.Unflatten(1, (1, 64, 64)),
-#         )
-
-#     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-#         h = self.encoder(x[:, :, 0, :, :])
-#         mu, logvar = self.fc1(h), self.fc2(h)
-#         return mu, logvar
-
-#     def decode(self, x: Tensor) -> Tensor:
-#         return self.decoder(x).unsqueeze(1).repeat((1, 1, 20, 1, 1))
-
-#     def forward(self, x):
-#         mu, logvar = self.encode(x)
-#         z = self.reparameterize(mu, logvar)
-#         return self.decode(z), mu, logvar
-
-#     def gen_from_noise(self, z):
-#         return self.decode(z)
-
-#     def reparameterize(self, mu, logvar):
-#         std = torch.exp(0.5 * logvar)
-#         eps = torch.randn_like(std)
-#         return mu + eps * std
-
-class ResidualLinear(nn.Module):
-    def __init__(self, in_features, out_features, bias=True,
-                 activation: nn.Module = nn.ReLU(inplace=True)):
-        super(ResidualLinear, self).__init__()
-
-        mid_features = out_features // 2
-        # TODO batchnorm?
-        self.fc1 = nn.Linear(in_features, mid_features, bias=bias)
-        self.activation = activation
-        self.fc2 = nn.Linear(mid_features, out_features, bias=bias)
-
-        self.residual = nn.Linear(in_features, out_features, bias=bias)
-
-    def forward(self, x):
-        residual = self.residual(x)
-
-        out = self.fc1(x)
-        out = self.activation(out)
-        out = self.fc2(out)
-
-        return self.activation(out + residual)
 
 
 class Conv3dVAE(nn.Module):

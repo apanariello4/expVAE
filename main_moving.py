@@ -20,7 +20,7 @@ def main(args: argparse.Namespace):
 
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
-    model = Conv3dVAE(latent_dim=args.latent_dim)
+    model = Conv3dVAE(latent_dim=args.latent_dim, activation=args.activation)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
@@ -53,7 +53,7 @@ def main(args: argparse.Namespace):
 
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='exp_vae', name=f"{name}_{args.activation}", config=args)
+        wandb.init(project='exp_vae', name=f"{name}{args.activation}", config=args)
         wandb.watch(model)
 
     for epoch in range(resume_epoch, args.epochs):
