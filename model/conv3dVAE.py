@@ -60,13 +60,14 @@ from model.pixel_shuffle import PixelShuffle3d
 #         return mu + eps * std
 
 class ResidualLinear(nn.Module):
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features, out_features, bias=True,
+                 activation: nn.Module = nn.ReLU(inplace=True)):
         super(ResidualLinear, self).__init__()
 
         mid_features = out_features // 2
         # TODO batchnorm?
         self.fc1 = nn.Linear(in_features, mid_features, bias=bias)
-        self.act = nn.ReLU()
+        self.activation = activation
         self.fc2 = nn.Linear(mid_features, out_features, bias=bias)
 
         self.residual = nn.Linear(in_features, out_features, bias=bias)
@@ -75,10 +76,10 @@ class ResidualLinear(nn.Module):
         residual = self.residual(x)
 
         out = self.fc1(x)
-        out = self.act(out)
+        out = self.activation(out)
         out = self.fc2(out)
 
-        return self.act(out + residual)
+        return self.activation(out + residual)
 
 
 class Conv3dVAE(nn.Module):
