@@ -58,7 +58,7 @@ class LoCOVAE(nn.Module):
             Encoder2DBlock(in_channels=16, out_channels=32, stride=2, activation=act),
             Encoder2DBlock(in_channels=32, out_channels=64, stride=2, activation=act),  # 64,16,16
 
-            BCHWtoBCTHW(batch_size),
+            BCHWtoBCTHW(),
             Encoder3DBlock(in_channels=64, out_channels=128, stride=2, activation=act),
             Encoder3DBlock(in_channels=128, out_channels=256, stride=2, activation=act),
             Encoder3DBlock(in_channels=256, out_channels=512, stride=2, activation=act),  # 512,3,2,2
@@ -86,7 +86,7 @@ class LoCOVAE(nn.Module):
             Decoder2DBlock(in_channels=64, out_channels=32, upscale_factor=2, activation=act),
             Decoder2DBlock(in_channels=32, out_channels=16, upscale_factor=2, activation=act),
             Decoder2DBlock(in_channels=16, out_channels=1, upscale_factor=1, activation=act),
-            BCHWtoBCTHW(batch_size),
+            BCHWtoBCTHW(),
 
         )
 
