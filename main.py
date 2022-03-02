@@ -9,7 +9,8 @@ from torch.optim import Adam
 
 from model.convVAE import ConvVAE
 from train import aggregate, train
-from utils.utils import args, deterministic_behavior, save_checkpoint, load_mnist_one_class, load_fmnist_one_class
+from utils.utils import args, deterministic_behavior, save_checkpoint
+from utils.dataset_loaders import load_mnist_one_class, load_fmnist_one_class
 from torchvision.utils import save_image
 
 

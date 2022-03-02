@@ -2,9 +2,12 @@ import torch.nn as nn
 from model.pixel_shuffle import PixelShuffle3d
 
 
-class EncoderBasic3DBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride, use_bias=False):
-        super(EncoderBasic3DBlock, self).__init__()
+class Encoder3DBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride, use_bias=False,
+                 activation: nn.Module = nn.ReLU(inplace=True)):
+        super(Encoder3DBlock, self).__init__()
+
+        self.act = activation
 
         self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3,
                                stride=stride, padding=1, bias=use_bias)
@@ -13,8 +16,6 @@ class EncoderBasic3DBlock(nn.Module):
         self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3,
                                stride=1, padding=1, bias=use_bias)
         self.bn2 = nn.BatchNorm3d(out_channels)
-
-        self.act = nn.ReLU()
 
         self.downsample = nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=use_bias),
@@ -34,11 +35,13 @@ class EncoderBasic3DBlock(nn.Module):
         return self.act(x + self.downsample(residual))
 
 
-class DecoderBasic3DBlock(nn.Module):
+class Decoder3DBlock(nn.Module):
     def __init__(self, in_channels, out_channels, use_bias=False,
-                 use_pixel_shuffle=False, upsample_shape: tuple = None):
+                 use_pixel_shuffle=False, upsample_shape: tuple = None,
+                 activation: nn.Module = nn.ReLU(inplace=True)):
 
-        super(DecoderBasic3DBlock, self).__init__()
+        super(Decoder3DBlock, self).__init__()
+        assert upsample_shape or use_pixel_shuffle, 'Either upsample_shape or use_pixel_shuffle must be specified'
 
         if use_pixel_shuffle:
             assert upsample_shape is None
@@ -60,7 +63,7 @@ class DecoderBasic3DBlock(nn.Module):
                                stride=1, padding=1, bias=use_bias)
         self.bn2 = nn.BatchNorm3d(out2)
 
-        self.act = nn.ReLU()
+        self.act = activation
 
         self.conv3 = nn.Conv3d(in1, out1, kernel_size=1,
                                stride=1, padding=0, bias=use_bias)

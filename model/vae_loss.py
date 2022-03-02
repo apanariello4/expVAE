@@ -5,7 +5,8 @@ from torch import Tensor
 
 
 def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
-             logvar: Tensor, alpha: float = 1.0, return_min_max: bool = False):
+             logvar: Tensor, alpha: float = 1.0, return_min_max: bool = False,
+             recon_func: str = 'mse'):
     """
     Variational Autoencoder loss function
     :param x_recon: reconstructed input
@@ -16,14 +17,19 @@ def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
     :param return_min_max: whether to return the min and max of the reconstruction loss
     :return: loss, and optionally the min and max of the reconstruction loss
     """
-    reconstruction_error = F.binary_cross_entropy(x_recon, x, reduction='sum')
+    if recon_func == 'mse':
+        recon_function = F.mse_loss
+    elif recon_func == 'bce':
+        recon_function = F.binary_cross_entropy
+
+    reconstruction_error = recon_function(x_recon, x, reduction='sum')
 
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     loss = reconstruction_error + alpha * kld
 
     if return_min_max:
-        sample_recon_err = F.binary_cross_entropy(x_recon, x, reduction='none').squeeze()
+        sample_recon_err = recon_function(x_recon, x, reduction='none').squeeze()
         batch_size, depth = sample_recon_err.shape[0], sample_recon_err.shape[1]
         sample_recon_err = sample_recon_err.view(batch_size, depth, -1).sum(-1)
 
@@ -41,9 +47,15 @@ def min_max_normalization(x: Tensor, new_min: float, new_max: float) -> Tensor:
 
 
 def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
-                        logvar: Tensor, min_max: Tuple[float], alpha: float = 1.0) -> Tensor:
+                        logvar: Tensor, min_max: Tuple[float],
+                        alpha: float = 1.0, recon_func: str = 'mse') -> Tensor:
 
-    sample_recon_err = F.binary_cross_entropy(x_recon, x, reduction='none').squeeze()
+    if recon_func == 'mse':
+        recon_function = F.mse_loss
+    elif recon_func == 'bce':
+        recon_function = F.binary_cross_entropy
+
+    sample_recon_err = recon_function(x_recon, x, reduction='none').squeeze()
     batch_size, depth = sample_recon_err.shape[0], sample_recon_err.shape[1]
     sample_recon_err = sample_recon_err.view(batch_size, depth, -1).sum(-1)
     recon_err_normalized = min_max_normalization(sample_recon_err, *min_max[:2])

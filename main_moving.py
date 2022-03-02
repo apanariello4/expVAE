@@ -3,6 +3,7 @@ import argparse
 import os
 import time
 from pathlib import Path
+from model.LoCOVAE import LoCOVAE
 from test import eval, eval_anom
 
 import torch
@@ -12,15 +13,15 @@ from torchvision.utils import save_image
 import wandb
 from model.conv3dVAE import Conv3dVAE
 from train import aggregate, train
-from utils.utils import (args, deterministic_behavior, load_moving_mnist,
-                         save_checkpoint)
+from utils.dataset_loaders import load_moving_mnist
+from utils.utils import args, deterministic_behavior, save_checkpoint
 
 
 def main(args: argparse.Namespace):
 
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
-    model = Conv3dVAE(latent_dim=args.latent_dim, activation=args.activation)
+    model = LoCOVAE(latent_dim=args.latent_dim, activation=args.activation)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)

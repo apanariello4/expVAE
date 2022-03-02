@@ -12,7 +12,7 @@ sys.path.append(base_path)
 from model.linear import ResidualLinear
 from model.block2d import Encoder2DBlock
 from model.block2p1d import Decoder2p1Block, Encoder2p1Block
-from model.block3d import DecoderBasic3DBlock, EncoderBasic3DBlock
+from model.block3d import Decoder3DBlock, Encoder3DBlock
 from model.pixel_shuffle import PixelShuffle3d
 
 
@@ -68,7 +68,7 @@ class Conv3dVAE(nn.Module):
             Decoder2p1Block(in_channels=16, out_channels=16, upsample_t=1, upsample_w_h=1, activation=act),
 
             nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0),
-            nn.Sigmoid()
+            # nn.Sigmoid()
         )
 
         print(f'Model parameters: {self.count_parameters():,}')
