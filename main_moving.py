@@ -21,7 +21,7 @@ def main(args: argparse.Namespace):
 
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
-    model = LoCOVAE(latent_dim=args.latent_dim, batch_size=args.batch_size, activation=args.activation)
+    model = LoCOVAE(latent_dim=args.latent_dim, activation=args.activation)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
