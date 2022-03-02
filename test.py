@@ -74,24 +74,26 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
             recon_batch, mu, logvar = model(data)
 
             anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
+            #anomaly_score, recon_err, kld_err = vae_loss(recon_batch, data, mu, logvar)
 
             labels_scores += list(
                 zip(target.view(-1).cpu().data.numpy().tolist(),
                     anomaly_score.view(-1).cpu().data.numpy().tolist(),
                     recon_err.view(-1).cpu().data.numpy().tolist(),
-                    kld_err.view(-1).cpu().data.numpy().tolist())
+                    kld_err.view(-1).cpu().data.numpy().tolist(),)
             )
             pbar.update()
 
-        labels, anomaly_score, recon_err, kld_err = zip(*labels_scores)
-        roc_auc = roc_auc_score(labels, anomaly_score)
-        ap = average_precision_score(labels, anomaly_score)
+        labels, anomaly_score_norm, recon_err_norm, kld_err_norm = zip(*labels_scores)
 
-        roc_auc_recon = roc_auc_score(labels, recon_err)
-        ap_recon = average_precision_score(labels, recon_err)
+        roc_auc = roc_auc_score(labels, anomaly_score_norm)
+        ap = average_precision_score(labels, anomaly_score_norm)
 
-        roc_auc_kld = roc_auc_score(labels, kld_err)
-        ap_kld = average_precision_score(labels, kld_err)
+        roc_auc_recon = roc_auc_score(labels, recon_err_norm)
+        ap_recon = average_precision_score(labels, recon_err_norm)
+
+        roc_auc_kld = roc_auc_score(labels, kld_err_norm)
+        ap_kld = average_precision_score(labels, kld_err_norm)
 
         if wandb.run:
             wandb.log({'roc_auc': roc_auc,

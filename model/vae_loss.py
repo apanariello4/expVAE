@@ -6,7 +6,7 @@ from torch import Tensor
 
 def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
              logvar: Tensor, alpha: float = 1.0, return_min_max: bool = False,
-             recon_func: str = 'mse'):
+             recon_func: str = 'bce', return_recon_kld: bool = False):
     """
     Variational Autoencoder loss function
     :param x_recon: reconstructed input
@@ -39,6 +39,9 @@ def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
 
         return loss, min_max_loss
 
+    if return_recon_kld:
+        return loss, reconstruction_error, kld
+
     return loss
 
 
@@ -48,7 +51,7 @@ def min_max_normalization(x: Tensor, new_min: float, new_max: float) -> Tensor:
 
 def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
                         logvar: Tensor, min_max: Tuple[float],
-                        alpha: float = 1.0, recon_func: str = 'mse') -> Tensor:
+                        alpha: float = 1.0, recon_func: str = 'bce') -> Tensor:
 
     if recon_func == 'mse':
         recon_function = F.mse_loss

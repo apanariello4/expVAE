@@ -34,7 +34,7 @@ class Decoder2DBlock(nn.Module):
 
         self.activation = activation
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.ups1 = nn.Upsample(scale_factor=upscale_factor, mode='bilinear')
+        self.ups1 = nn.Upsample(scale_factor=upscale_factor, mode='bilinear', align_corners=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
 
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
@@ -42,7 +42,7 @@ class Decoder2DBlock(nn.Module):
 
         self.ups_res = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
-            nn.Upsample(scale_factor=upscale_factor, mode='bilinear'),
+            nn.Upsample(scale_factor=upscale_factor, mode='bilinear', align_corners=False),
             nn.BatchNorm2d(out_channels)
         )
 

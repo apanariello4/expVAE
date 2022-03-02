@@ -41,7 +41,7 @@ class BCHWtoBCTHW(nn.Module):
 
 
 class LoCOVAE(nn.Module):
-    def __init__(self, latent_dim: int, batch_size: int, activation: str = 'relu'):
+    def __init__(self, latent_dim: int, activation: str = 'relu'):
         super(LoCOVAE, self).__init__()
 
         act = {'relu': nn.ReLU(inplace=True),
