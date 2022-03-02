@@ -29,13 +29,13 @@ class BCTHWtoBCHW(nn.Module):
 
 
 class BCHWtoBCTHW(nn.Module):
-    def __init__(self, batch_size: int):
+    def __init__(self, t: int = 20):
         super(BCHWtoBCTHW, self).__init__()
-        self.batch_size = batch_size
+        self.t = t
 
     def forward(self, x: Tensor) -> Tensor:
-        t = x.shape[0] // self.batch_size
-        x = x.reshape(self.batch_size, t, *x.shape[1:])
+        batch_size = x.shape[0] // self.t
+        x = x.reshape(batch_size, self.t, *x.shape[1:])
         x = x.permute(0, 2, 1, 3, 4)
         return x
 
