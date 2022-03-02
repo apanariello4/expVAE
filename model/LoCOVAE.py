@@ -22,23 +22,26 @@ class BCTHWtoBCHW(nn.Module):
         super(BCTHWtoBCHW, self).__init__()
 
     def forward(self, x: Tensor) -> Tensor:
+        # 16,1,20,64,64 -> 16*20,1,64,64
         x = x.permute(0, 2, 1, 3, 4)
         x = x.reshape(x.shape[0] * x.shape[1], *x.shape[2:])
         return x
 
 
 class BCHWtoBCTHW(nn.Module):
-    def __init__(self):
+    def __init__(self, batch_size: int):
         super(BCHWtoBCTHW, self).__init__()
+        self.batch_size = batch_size
 
     def forward(self, x: Tensor) -> Tensor:
-        x = x.reshape(16, 20, *x.shape[1:])
+        t = x.shape[0] // self.batch_size
+        x = x.reshape(self.batch_size, t, *x.shape[1:])
         x = x.permute(0, 2, 1, 3, 4)
         return x
 
 
 class LoCOVAE(nn.Module):
-    def __init__(self, latent_dim: int, activation: str = 'relu'):
+    def __init__(self, latent_dim: int, batch_size: int, activation: str = 'relu'):
         super(LoCOVAE, self).__init__()
 
         act = {'relu': nn.ReLU(inplace=True),
@@ -55,7 +58,7 @@ class LoCOVAE(nn.Module):
             Encoder2DBlock(in_channels=16, out_channels=32, stride=2, activation=act),
             Encoder2DBlock(in_channels=32, out_channels=64, stride=2, activation=act),  # 64,16,16
 
-            BCHWtoBCTHW(),
+            BCHWtoBCTHW(batch_size),
             Encoder3DBlock(in_channels=64, out_channels=128, stride=2, activation=act),
             Encoder3DBlock(in_channels=128, out_channels=256, stride=2, activation=act),
             Encoder3DBlock(in_channels=256, out_channels=512, stride=2, activation=act),  # 512,3,2,2
@@ -83,11 +86,11 @@ class LoCOVAE(nn.Module):
             Decoder2DBlock(in_channels=64, out_channels=32, upscale_factor=2, activation=act),
             Decoder2DBlock(in_channels=32, out_channels=16, upscale_factor=2, activation=act),
             Decoder2DBlock(in_channels=16, out_channels=1, upscale_factor=1, activation=act),
-            BCHWtoBCTHW(),
+            BCHWtoBCTHW(batch_size),
 
         )
 
-        print(f'{self.name}\tModel parameters: {self.count_parameters():,}')
+        print(f'{self.name}\tModel parameters: {self.count_parameters:,}')
 
     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         h = self.encoder(x)
@@ -110,12 +113,13 @@ class LoCOVAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
+    @property
     def count_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 if __name__ == '__main__':
-    model = LoCOVAE(latent_dim=128)
+    model = LoCOVAE(latent_dim=128, batch_size=16)
     x = torch.randn(16, 1, 20, 64, 64)
 
     y = model(x)
