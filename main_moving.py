@@ -10,7 +10,7 @@ from test import eval, eval_anom
 import torch
 from torch.optim import Adam
 from torchvision.utils import save_image
-
+import torch.nn as nn
 import wandb
 from model.conv3dVAE import Conv3dVAE
 from train import aggregate, train
@@ -23,6 +23,8 @@ def main(args: argparse.Namespace):
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
     model = LoCOVAE(latent_dim=args.latent_dim, activation=args.activation)
+    if args.recon_func == 'bce':
+        model.decoder.add_module("sigmoid", nn.Sigmoid())
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
