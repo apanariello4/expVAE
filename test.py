@@ -31,7 +31,7 @@ def gen_one_recon_img(x: Tensor, x_hat: Tensor) -> Tensor:
     return imgs
 
 
-def eval(model, device: torch.device, test_loader: DataLoader, epoch: int) -> float:
+def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon_func: str) -> float:
     model.eval()
     test_loss = 0
     num_samples = 0
@@ -45,7 +45,8 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int) -> fl
                 num_samples += batch_size
 
                 recon_batch, mu, logvar = model(data)
-                loss = vae_loss(recon_batch, data, mu, logvar)
+
+                loss = vae_loss(recon_batch, data, mu, logvar, recon_func=recon_func)
                 test_loss += loss.item()
                 pbar.set_postfix(loss=test_loss / num_samples)
                 pbar.update()
@@ -62,7 +63,7 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int) -> fl
 
 
 def eval_anom(model, device: torch.device, anom_loader: DataLoader,
-              epoch: int, min_max_train: Tuple[float]) -> Tuple[float, float]:
+              epoch: int, min_max_train: Tuple[float], recon_func: str) -> Tuple[float, float]:
 
     model.eval()
     labels_scores = []
@@ -73,7 +74,7 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
             recon_batch, mu, logvar = model(data)
 
-            anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train)
+            anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train, recon_func=recon_func)
             #anomaly_score, recon_err, kld_err = vae_loss(recon_batch, data, mu, logvar)
 
             labels_scores += list(
@@ -108,14 +109,10 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
 if __name__ == '__main__':
     from model.conv3dVAE import Conv3dVAE
-    from utils.utils import args, load_moving_mnist
-    arg = args()
-    model = Conv3dVAE(latent_dim=512)
-    checkpoint = torch.load('./checkpoints/residual2p1dfull_moving_conv3dVAE_512_best.pth')
-    model.load_state_dict(checkpoint['state_dict'])
-    arg.batch_size = 1
-    _, test_loader, _ = load_moving_mnist(arg)
+    import torchvision
 
-    roc, ap = eval_anom(model.to(torch.device('cuda')), torch.device('cuda'), test_loader, 0, (0, 1,))
+    x = torch.randn(1, 20, 64, 64)
+    y = torch.randn(1, 20, 64, 64)
 
-    save_one_recon_batch(model, torch.device('cpu'), test_loader, checkpoint['epoch'])
+    x = x.transpose(0, -1)
+    torchvision.utils.save_image(torch.cat([x, y], dim=0), 'test.png')

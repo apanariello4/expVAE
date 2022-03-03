@@ -85,7 +85,9 @@ class LoCOVAE(nn.Module):
 
             Decoder2DBlock(in_channels=64, out_channels=32, upscale_factor=2, activation=act),
             Decoder2DBlock(in_channels=32, out_channels=16, upscale_factor=2, activation=act),
-            Decoder2DBlock(in_channels=16, out_channels=1, upscale_factor=1, activation=act),
+            Decoder2DBlock(in_channels=16, out_channels=16, upscale_factor=1, activation=act),
+            nn.Conv2d(in_channels=16, out_channels=1, kernel_size=1, padding=0),
+
             BCHWtoBCTHW(),
 
         )

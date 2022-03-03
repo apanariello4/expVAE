@@ -1,15 +1,17 @@
 from typing import Tuple
-from model.vae_loss import vae_loss
-from tqdm import tqdm
+
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
 import wandb
+from model.vae_loss import vae_loss
 
 
 def aggregate(model, train_loader: DataLoader,
-              device: torch.device) -> Tuple[Tensor, Tensor]:
+              device: torch.device, recon_func: str) -> Tuple[Tensor, Tensor]:
     model.eval()
     latent_dim = model.latent_dim
     counter = 0
@@ -25,7 +27,7 @@ def aggregate(model, train_loader: DataLoader,
             data = data.to(device)
             x_hat, mu, logvar = model(data)
 
-            _, min_max_loss = vae_loss(x_hat, data, mu, logvar, return_min_max=True)
+            _, min_max_loss = vae_loss(x_hat, data, mu, logvar, recon_func=recon_func, return_min_max=True)
             var = torch.exp(logvar)
 
             var_agg += var.sum(dim=0)
@@ -51,7 +53,7 @@ def aggregate(model, train_loader: DataLoader,
 
 
 def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: torch.optim.lr_scheduler,
-          device: torch.device, epoch: int, alpha: float = 1.0) -> None:
+          device: torch.device, epoch: int, recon_func: str, alpha: float = 1.0) -> None:
     total_loss = 0.0
     num_samples = 0
 
@@ -64,7 +66,7 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
             num_samples += batch_size
             optimizer.zero_grad()
             x_recon, mu, logvar = model(data)
-            loss = vae_loss(x_recon, data, mu, logvar, alpha)
+            loss = vae_loss(x_recon, data, mu, logvar, recon_func, alpha)
             total_loss += loss.item()
             loss.backward()
             optimizer.step()

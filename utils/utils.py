@@ -24,6 +24,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--lr-steps', type=int, default=3)
     parser.add_argument('--activation', type=str, default='relu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
+    parser.add_argument('--recon-func', type=str, default='bce', choices=['mse', 'bce'])
 
     parser.add_argument('--resume', type=str, choices=['best', 'last'])
     parser.add_argument('--one-class', type=int, default=3)
@@ -36,16 +37,15 @@ def args() -> argparse.Namespace:
 
 def save_checkpoint(model, epoch: int, optimizer: torch.optim,
                     distribution: Tuple[Tensor, Tensor],
-                    is_last: bool, outdir: str, args: argparse.Namespace) -> None:
+                    is_last: bool, args: argparse.Namespace, time) -> None:
+    outdir = args.ckpt_dir
     if not os.path.exists(outdir):
         os.makedirs(outdir)
-    dataset = args.dataset
-    if model.name == 'conv3dVAE':
-        dataset = 'moving'
+
     experiment = args.name + '_' if args.name else ''
     base_path = os.path.join(
-        outdir, f'{experiment}{dataset}_{model.name}_{args.latent_dim}_')
-    checkpoint_file = base_path + 'checkpoint.pth'
+        outdir, f'{experiment}_{model.name}_{time}')
+    checkpoint_file = base_path + 'chkp.pth'
     best_file = base_path + 'best.pth'
     state = {
         'epoch': epoch + 1,

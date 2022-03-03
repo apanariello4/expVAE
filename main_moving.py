@@ -1,5 +1,6 @@
 
 import argparse
+import datetime
 import os
 import time
 from pathlib import Path
@@ -52,17 +53,20 @@ def main(args: argparse.Namespace):
     alpha = torch.linspace(0, 1, args.alpha_warmup)
     alpha = torch.cat((alpha, torch.ones(args.epochs - len(alpha))))
 
+    now = datetime.datetime.now().strftime("%m%d%H%M")
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='exp_vae', name=f"{name}{args.activation}", config=args)
+        wandb.init(project='exp_vae', name=f"{name}{args.activation}_{args.recon_func}", config=args)
         wandb.watch(model)
+
+    recon_func = args.recon_func
 
     for epoch in range(resume_epoch, args.epochs):
         t0 = time.time()
-        train(model, train_loader, optimizer, scheduler, device, epoch, alpha[epoch])
-        mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device)
-        test_loss = eval(model, device, test_loader, epoch)
-        roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss)
+        train(model, train_loader, optimizer, scheduler, device, epoch, recon_func, alpha[epoch])
+        mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device, recon_func)
+        test_loss = eval(model, device, test_loader, epoch, recon_func)
+        roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
         print(f'Epoch {epoch} val_loss: {test_loss:.4f}\tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}\tEpoch time {time.time() - t0:.4f}')
 
         if args.save_checkpoint:
@@ -73,7 +77,7 @@ def main(args: argparse.Namespace):
                     epoch,
                     optimizer, (mu_avg, var_avg),
                     is_last=epoch == args.epochs - 1,
-                    outdir=args.ckpt_dir, args=args)
+                    args=args, time=now)
 
         noise = torch.randn(1, args.latent_dim).to(device)
         generated = model.gen_from_noise(noise)

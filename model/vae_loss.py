@@ -5,8 +5,8 @@ from torch import Tensor
 
 
 def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
-             logvar: Tensor, alpha: float = 1.0, return_min_max: bool = False,
-             recon_func: str = 'bce', return_recon_kld: bool = False):
+             logvar: Tensor, recon_func: str, alpha: float = 1.0,
+             return_min_max: bool = False, return_recon_kld: bool = False):
     """
     Variational Autoencoder loss function
     :param x_recon: reconstructed input
@@ -17,11 +17,13 @@ def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
     :param return_min_max: whether to return the min and max of the reconstruction loss
     :return: loss, and optionally the min and max of the reconstruction loss
     """
+    assert recon_func in ['mse', 'bce'], 'recon_func must be either mse or bce'
+    assert not (return_min_max and return_recon_kld), 'return_min_max and return_recon_kld cannot be both True'
+
     if recon_func == 'mse':
         recon_function = F.mse_loss
     elif recon_func == 'bce':
-        recon_function = F.binary_cross_entropy
-        x_recon = x_recon.sigmoid()
+        recon_function = F.binary_cross_entropy_with_logits
 
     reconstruction_error = recon_function(x_recon, x, reduction='sum')
 
@@ -57,8 +59,7 @@ def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
     if recon_func == 'mse':
         recon_function = F.mse_loss
     elif recon_func == 'bce':
-        recon_function = F.binary_cross_entropy
-        x_recon = x_recon.sigmoid()
+        recon_function = F.binary_cross_entropy_with_logits
 
     sample_recon_err = recon_function(x_recon, x, reduction='none').squeeze()
     batch_size, depth = sample_recon_err.shape[0], sample_recon_err.shape[1]
