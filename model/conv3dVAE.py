@@ -68,7 +68,6 @@ class Conv3dVAE(nn.Module):
             Decoder2p1Block(in_channels=16, out_channels=16, upsample_t=1, upsample_w_h=1, activation=act),
 
             nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0),
-            nn.Sigmoid()
         )
 
         print(f'Model parameters: {self.count_parameters():,}')

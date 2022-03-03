@@ -21,6 +21,7 @@ def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
         recon_function = F.mse_loss
     elif recon_func == 'bce':
         recon_function = F.binary_cross_entropy
+        x_recon = x_recon.sigmoid()
 
     reconstruction_error = recon_function(x_recon, x, reduction='sum')
 
@@ -57,6 +58,7 @@ def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
         recon_function = F.mse_loss
     elif recon_func == 'bce':
         recon_function = F.binary_cross_entropy
+        x_recon = x_recon.sigmoid()
 
     sample_recon_err = recon_function(x_recon, x, reduction='none').squeeze()
     batch_size, depth = sample_recon_err.shape[0], sample_recon_err.shape[1]
