@@ -2,6 +2,7 @@ from typing import Optional, Tuple, Union
 import torch
 from torch.nn import functional as F
 from torch import Tensor
+import torch.nn as nn
 
 
 def vae_loss(x_recon: Tensor, x: Tensor, mu: Tensor,
@@ -72,3 +73,92 @@ def vae_loss_normalized(x_recon: Tensor, x: Tensor, mu: Tensor,
     loss = recon_err_normalized.sum() + alpha * kld_normalized.sum()
 
     return loss, recon_err_normalized, kld_normalized
+
+
+class VAELoss(nn.Module):
+    def __init__(self, recon_func: str):
+        super().__init__()
+
+        assert recon_func in ['mse', 'bce'], 'recon_func must be either mse or bce'
+        #assert not (return_min_max and return_recon_kld), 'return_min_max and return_recon_kld cannot be both True'
+
+        self.recon_func = recon_func
+
+    def forward(self, x_recon: Tensor, x: Tensor, mu: Tensor,
+                logvar: Tensor, return_min_max: bool = False, alpha: float = 1.0) -> Tensor:
+
+        return vae_loss(x_recon, x, mu, logvar, self.recon_func, alpha, return_min_max)
+
+
+class VRNNLoss(nn.Module):
+    def __init__(self,):
+        super(VRNNLoss, self).__init__()
+
+        self.EPS = torch.finfo(torch.float).eps
+
+    def _kld_gauss(self, mean_1: Tensor, std_1: Tensor,
+                   mean_2: Tensor, std_2: Tensor, frame_level: bool = False) -> Tensor:
+        """Using std to compute KLD"""
+
+        kld_element = (2 * torch.log(std_2 + self.EPS) - 2 * torch.log(std_1 + self.EPS) +
+                       (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
+                       std_2.pow(2) - 1)
+        return 0.5 * torch.sum(kld_element, dim=-1) if frame_level else 0.5 * torch.sum(kld_element)
+
+    def _nll_bernoulli(self, theta: Tensor, x: Tensor, frame_level: bool = False) -> Tensor:
+        """Using log-likelihood to compute NLL"""
+        nll = x * torch.log(theta + self.EPS) + (1 - x) * torch.log(1 - theta - self.EPS)
+
+        return - torch.sum(nll, dim=-1) if frame_level else - torch.sum(nll)
+
+    def frame_level_loss(self, x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior):
+        batch_size, depth = x.shape[0], x.shape[2]
+        x = x.transpose(1, 2).reshape(batch_size, depth, -1)
+        x_recon = x_recon.transpose(1, 2).reshape(batch_size, depth, -1)
+
+        nll_frame_level = self._nll_bernoulli(x_recon, x, frame_level=True)
+
+        mu_posterior = mu_posterior.transpose(0, 1)
+        std_posterior = std_posterior.transpose(0, 1)
+        mu_prior = mu_prior.transpose(0, 1)
+        std_prior = std_prior.transpose(0, 1)
+
+        kld_frame_level = self._kld_gauss(mu_posterior, std_posterior,
+                                          mu_prior, std_prior, frame_level=True)
+
+        min_max_loss = (nll_frame_level.min(), nll_frame_level.max(),
+                        kld_frame_level.min(), kld_frame_level.max())
+
+        return nll_frame_level + kld_frame_level, nll_frame_level, kld_frame_level
+
+    def forward(self, x_recon: Tensor, x: Tensor,
+                mu_std_posterior: Tuple[Tensor, Tensor],
+                mu_std_prior: Tuple[Tensor, Tensor],
+                alpha: float = 1.0, frame_level: bool = False) -> Tensor:
+
+        mu_posterior, std_posterior = mu_std_posterior
+        mu_prior, std_prior = mu_std_prior
+
+        kld = self._kld_gauss(mu_posterior, std_posterior, mu_prior, std_prior)
+        nll = self._nll_bernoulli(x_recon, x)
+
+        loss = nll + alpha * kld
+
+        if frame_level:
+            loss, recon_error, kld_error = self.frame_level_loss(x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior)
+
+            return loss, recon_error, kld_error
+
+        return loss
+
+
+if __name__ == '__main__':
+    loss = VRNNLoss()
+    x = torch.randn(16, 1, 20, 64, 64)
+    x_recon = torch.randn(16, 1, 20, 64, 64)
+    mu_posterior = torch.randn(20, 16, 512)
+    std_posterior = torch.randn(20, 16, 512)
+    mu_prior = torch.randn(20, 16, 512)
+    std_prior = torch.randn(20, 16, 512)
+
+    loss_val, min_max_loss = loss(x_recon, x, (mu_posterior, std_posterior), (mu_prior, std_prior), return_min_max=True)

@@ -7,6 +7,9 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
 
+
+from model.vae_loss import VAELoss
+
 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_path)
 from model.linear import ResidualLinear
@@ -14,9 +17,10 @@ from model.block2d import Encoder2DBlock
 from model.block2p1d import Decoder2p1Block, Encoder2p1Block
 from model.block3d import Decoder3DBlock, Encoder3DBlock
 from model.pixel_shuffle import PixelShuffle3d
+from model.base_model import BaseModel
 
 
-class Conv3dVAE(nn.Module):
+class Conv3dVAE(BaseModel):
     def __init__(self, latent_dim: int, activation: str = 'relu'):
         super(Conv3dVAE, self).__init__()
 
@@ -70,8 +74,6 @@ class Conv3dVAE(nn.Module):
             nn.Conv3d(16, 1, kernel_size=1, stride=1, padding=0),
         )
 
-        print(f'Model parameters: {self.count_parameters():,}')
-
     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         h = self.encoder(x)
         mu, logvar = self.fc1(h), self.fc2(h)
@@ -86,16 +88,14 @@ class Conv3dVAE(nn.Module):
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
-    def gen_from_noise(self, z: Tensor) -> Tensor:
-        return self.decode(z)
+    def sample(self,) -> Tensor:
+        z = torch.randn(1, self.latent_dim).to(self._device)
+        recon = self.decode(z)
+        return recon.squeeze(0).transpose(0, 1)
 
-    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
-    def count_parameters(self):
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+    @staticmethod
+    def get_loss_function(recon_function) -> nn.Module:
+        return VAELoss(recon_function)
 
 
 if __name__ == '__main__':

@@ -21,13 +21,15 @@ def aggregate(model, train_loader: DataLoader,
     min_recon, min_kld = float('inf'), float('inf')
     max_recon, max_kld = float('-inf'), float('-inf')
 
+    loss_function = model.get_loss_function(recon_func=recon_func)
+
     with torch.no_grad(), tqdm(total=len(train_loader), desc='Aggregate') as pbar:
         for data, _ in train_loader:
 
             data = data.to(device)
             x_hat, mu, logvar = model(data)
 
-            _, min_max_loss = vae_loss(x_hat, data, mu, logvar, recon_func=recon_func, return_min_max=True)
+            _, min_max_loss = loss_function(x_hat, data, mu, logvar, return_min_max=True)
             var = torch.exp(logvar)
 
             var_agg += var.sum(dim=0)
@@ -56,6 +58,7 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
           device: torch.device, epoch: int, recon_func: str, alpha: float = 1.0) -> None:
     total_loss = 0.0
     num_samples = 0
+    loss_function = model.get_loss_function(recon_func=recon_func)
 
     with tqdm(total=len(train_loader), desc=f'Epoch {epoch}') as pbar:
         for data, _ in train_loader:
@@ -63,19 +66,23 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
             model.train()
             data = data.to(device)
             batch_size = data.shape[0]
+
             num_samples += batch_size
             optimizer.zero_grad()
-            x_recon, mu, logvar = model(data)
-            loss = vae_loss(x_recon, data, mu, logvar, recon_func, alpha)
+
+            x_recon, *distribution = model(data)
+
+            loss = loss_function(x_recon, data, *distribution, alpha)
+
             total_loss += loss.item()
             loss.backward()
             optimizer.step()
             pbar.update()
             pbar.set_postfix(loss=total_loss / num_samples,
-                             alpha_kdl=alpha.item(),
+                             alpha_kld=alpha.item(),
                              lr=optimizer.param_groups[0]['lr'])
             if wandb.run:
                 wandb.log({'train_loss': total_loss / num_samples,
-                           'alpha_kdl': alpha.item(),
+                           'alpha_kld': alpha.item(),
                            'lr': optimizer.param_groups[0]['lr']}, step=epoch)
         scheduler.step()

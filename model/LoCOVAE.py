@@ -13,8 +13,9 @@ from model.linear import ResidualLinear
 from model.block2d import Decoder2DBlock, Encoder2DBlock
 from model.block3d import Encoder3DBlock, Decoder3DBlock
 from model.block2p1d import Encoder2p1Block, Decoder2p1Block
-
 from model.pixel_shuffle import PixelShuffle3d
+from model.base_model import BaseModel
+from model.vae_loss import VAELoss
 
 
 class BCTHWtoBCHW(nn.Module):
@@ -40,7 +41,7 @@ class BCHWtoBCTHW(nn.Module):
         return x
 
 
-class LoCOVAE(nn.Module):
+class LoCOVAE(BaseModel):
     def __init__(self, latent_dim: int, activation: str = 'relu'):
         super(LoCOVAE, self).__init__()
 
@@ -92,8 +93,6 @@ class LoCOVAE(nn.Module):
 
         )
 
-        print(f'{self.name}\tModel parameters: {self.count_parameters:,}')
-
     def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         h = self.encoder(x)
         mu, logvar = self.fc1(h), self.fc2(h)
@@ -110,14 +109,9 @@ class LoCOVAE(nn.Module):
     def gen_from_noise(self, z: Tensor) -> Tensor:
         return self.decode(z)
 
-    def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
-    @property
-    def count_parameters(self):
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+    @staticmethod
+    def get_loss_function(recon_func) -> nn.Module:
+        return VAELoss(recon_func)
 
 
 if __name__ == '__main__':

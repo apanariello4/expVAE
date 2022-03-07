@@ -27,6 +27,9 @@ def save_one_recon_batch(model, device, test_loader, epoch):
 
 
 def gen_one_recon_img(x: Tensor, x_hat: Tensor) -> Tensor:
+    assert x.max() <= 1.0 and x.min() >= 0.0, "x has not been normalized"
+    assert x_hat.max() <= 1.0 and x_hat.min() >= 0.0, "x_hat has not been normalized"
+
     imgs = torch.cat([x.transpose(0, 1), x_hat.transpose(0, 1)], dim=0)
     return imgs
 
@@ -35,6 +38,7 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
     model.eval()
     test_loss = 0
     num_samples = 0
+    loss_function = model.get_loss_function(recon_func=recon_func)
     with tqdm(total=len(test_loader), desc='Eval ') as pbar:
         with torch.no_grad():
             for data, _ in test_loader:
@@ -44,14 +48,15 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
                 batch_size = data.shape[0]
                 num_samples += batch_size
 
-                recon_batch, mu, logvar = model(data)
+                x_recon, *distribution = model(data)
 
-                loss = vae_loss(recon_batch, data, mu, logvar, recon_func=recon_func)
+                loss = loss_function(x_recon, data, *distribution)
+
                 test_loss += loss.item()
                 pbar.set_postfix(loss=test_loss / num_samples)
                 pbar.update()
 
-                imgs = gen_one_recon_img(data[0], recon_batch[0])
+                imgs = gen_one_recon_img(data[0], x_recon[0])
 
                 if wandb.run:
                     w_imgs = wandb.Image(imgs, caption='Reconstruction')
@@ -67,15 +72,18 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
     model.eval()
     labels_scores = []
+    loss_function = model.get_loss_function(recon_func=recon_func)
     with torch.no_grad(), tqdm(total=len(anom_loader), desc='Eval anomalous') as pbar:
         for data, target in anom_loader:
             data = data.to(device)
             target = target.to(device)
 
-            recon_batch, mu, logvar = model(data)
+            recon_batch, *distribution = model(data)
 
-            anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, mu, logvar, min_max_train, recon_func=recon_func)
-            #anomaly_score, recon_err, kld_err = vae_loss(recon_batch, data, mu, logvar)
+            if min_max_train:
+                anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, *distribution, min_max_train, recon_func=recon_func)
+            else:
+                anomaly_score, recon_err, kld_err = loss_function(recon_batch, data, *distribution, frame_level=True)
 
             labels_scores += list(
                 zip(target.view(-1).cpu().data.numpy().tolist(),

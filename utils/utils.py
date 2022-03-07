@@ -25,6 +25,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--activation', type=str, default='relu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
     parser.add_argument('--recon-func', type=str, default='bce', choices=['mse', 'bce'])
+    parser.add_argument('--model', type=str, default='conv3d', choices=['loco', 'conv3d', 'vrnn'])
 
     parser.add_argument('--resume', type=str, choices=['best', 'last'])
     parser.add_argument('--one-class', type=int, default=3)
