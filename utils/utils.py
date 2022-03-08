@@ -37,7 +37,6 @@ def args() -> argparse.Namespace:
 
 
 def save_checkpoint(model, epoch: int, optimizer: torch.optim,
-                    distribution: Tuple[Tensor, Tensor],
                     is_last: bool, args: argparse.Namespace, time) -> None:
     outdir = args.ckpt_dir
     if not os.path.exists(outdir):
@@ -46,21 +45,18 @@ def save_checkpoint(model, epoch: int, optimizer: torch.optim,
     experiment = args.name + '_' if args.name else ''
     base_path = os.path.join(
         outdir, f'{experiment}_{model.name}_{time}')
-    checkpoint_file = base_path + 'chkp.pth'
-    best_file = base_path + 'best.pth'
+    checkpoint_file = base_path + '_chkp.pth'
+    best_file = base_path + '_best.pth'
     state = {
         'epoch': epoch + 1,
         'state_dict': model.state_dict(),
         'optimizer': optimizer.state_dict(),
-        'mu_avg': distribution[0],
-        'var_avg': distribution[1],
-        'dataset': args.dataset,
     }
     if is_last:
-        print("Saving checkpoint")
+        print(f"Saving checkpoint in {checkpoint_file}")
         torch.save(state, checkpoint_file)
     else:
-        print("Saving new best model")
+        print(f"Saving new best model in {best_file}")
         torch.save(state, best_file)
 
 

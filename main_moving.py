@@ -100,7 +100,7 @@ def main(args: argparse.Namespace):
         if wandb.run:
             wandb.log({
                 # 'mu_avg': mu_avg, 'var_avg': var_avg,
-                'img_from_noise': wandb.Image(generated, caption='Generated from noise')
+                'img_from_noise': wandb.Image(generated, caption=f'Generated from noise ep {epoch}'),
             }, step=epoch)
 
 

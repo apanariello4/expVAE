@@ -6,7 +6,7 @@ class ResidualLinear(nn.Module):
                  activation: nn.Module = nn.ReLU(inplace=True)):
         super(ResidualLinear, self).__init__()
 
-        mid_features = out_features // 2
+        mid_features = (in_features + out_features) // 2
         # TODO batchnorm?
         self.fc1 = nn.Linear(in_features, mid_features, bias=bias)
         self.activation = activation

@@ -39,29 +39,29 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
     test_loss = 0
     num_samples = 0
     loss_function = model.get_loss_function(recon_func=recon_func)
-    with tqdm(total=len(test_loader), desc='Eval ') as pbar:
-        with torch.no_grad():
-            for data, _ in test_loader:
 
-                data = data.to(device)
+    with torch.no_grad(), tqdm(total=len(test_loader), desc='Eval ') as pbar:
+        for data, _ in test_loader:
 
-                batch_size = data.shape[0]
-                num_samples += batch_size
+            data = data.to(device)
 
-                x_recon, *distribution = model(data)
+            batch_size = data.shape[0]
+            num_samples += batch_size
 
-                loss = loss_function(x_recon, data, *distribution)
+            x_recon, *distribution = model(data)
 
-                test_loss += loss.item()
-                pbar.set_postfix(loss=test_loss / num_samples)
-                pbar.update()
+            loss = loss_function(x_recon, data, *distribution)
 
-                imgs = gen_one_recon_img(data[0], x_recon[0])
+            test_loss += loss.item()
+            pbar.set_postfix(loss=test_loss / num_samples)
+            pbar.update()
 
-                if wandb.run:
-                    w_imgs = wandb.Image(imgs, caption='Reconstruction')
-                    wandb.log({'test_loss': test_loss / num_samples,
-                               'reconstruction': w_imgs}, step=epoch)
+        imgs = gen_one_recon_img(data[0], x_recon[0])
+
+        if wandb.run:
+            w_imgs = wandb.Image(imgs, caption=f'Reconstruction ep {epoch}')
+            wandb.log({'test_loss': test_loss / num_samples,
+                       'reconstruction': w_imgs}, step=epoch)
 
     test_loss /= len(test_loader.dataset)
     return test_loss
