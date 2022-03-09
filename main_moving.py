@@ -2,10 +2,12 @@
 import argparse
 import datetime
 import os
+from platform import architecture
 import time
 from pathlib import Path
+from model.Bi_conVRNN import BidirectionalConVRNN
 from model.LoCOVAE import LoCOVAE
-from model.conVRNN import conVRNN
+from model.conVRNN import ConVRNN
 from test import eval, eval_anom
 
 import torch
@@ -23,16 +25,15 @@ def main(args: argparse.Namespace):
 
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
-    if args.model == 'loco':
-        model = LoCOVAE(latent_dim=args.latent_dim, activation=args.activation)
+    if args.model in ['loco', 'conv3d']:
+        architecture = {'loco': LoCOVAE, 'conv3d': Conv3dVAE}[args.model]
+        model = architecture(latent_dim=args.latent_dim, activation=args.activation)
         if args.recon_func == 'bce':
             model.decoder.add_module("sigmoid", nn.Sigmoid())
-    elif args.model == 'conv3d':
-        model = Conv3dVAE(latent_dim=args.latent_dim, activation=args.activation)
-        if args.recon_func == 'bce':
-            model.decoder.add_module("sigmoid", nn.Sigmoid())
-    elif args.model == 'vrnn':
-        model = conVRNN(h_dim=512, latent_dim=args.latent_dim, activation=args.activation)
+
+    elif args.model in ['vrnn', 'bivrnn']:
+        architecture = {'vrnn': ConVRNN, 'bivrnn': BidirectionalConVRNN}[args.model]
+        model = architecture(h_dim=512, latent_dim=args.latent_dim, activation=args.activation)
 
     print(f'Model: {model.name}, num params: {model.count_parameters:,}')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -94,7 +95,9 @@ def main(args: argparse.Namespace):
                     is_last=epoch == args.epochs - 1,
                     args=args, time=now)
 
-        generated = model.sample()
+        with torch.no_grad():
+            model.train()
+            generated = model.sample()
         # save_image(generated, './generated_moving.png')
 
         if wandb.run:
@@ -105,14 +108,15 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == '__main__':
-    # model = Conv3dVAE(latent_dim=32)
+    # model = ConVRNN(512, 128, 'elu')
     # model.load_state_dict(
-    #     torch.load('checkpoints/fmnist_conv3dVAE_model_best.pth')['state_dict'])
+    #     torch.load('/home/nello/expVAE/checkpoints/shallow__conVRNN_03081041best.pth')['state_dict'])
     # model.eval()
-    # noise = torch.randn(1, 32)
-    # generated = model.gen_from_noise(noise)
-    # generated = generated.squeeze(0).transpose(0, 1)
-    # save_image(generated, './generated_moving.png')
+    # generated = model.sample()
+    # save_image(generated, './generated_eval.png')
+    # model.train()
+    # generated = model.sample()
+    # save_image(generated, './generated_train.png')
 
-    deterministic_behavior()
-    main(args())
+    # deterministic_behavior()
+    # main(args())

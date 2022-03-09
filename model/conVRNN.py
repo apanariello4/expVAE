@@ -14,14 +14,15 @@ from model.base_model import BaseModel
 EPS = torch.finfo(torch.float).eps
 
 
-class conVRNN(BaseModel):
+class ConVRNN(BaseModel):
     def __init__(self, h_dim: int, latent_dim: int, activation: str,
-                 n_layers: int = 1, bias: bool = False):
-        super(conVRNN, self).__init__()
+                 n_layers: int = 1, bias: bool = False, bidirectional: bool = False):
+        super(ConVRNN, self).__init__()
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
         self.n_layers = n_layers
+        self.bidirectional = bidirectional
         self.name = "conVRNN"
 
         act = {'relu': nn.ReLU(inplace=True),
@@ -33,10 +34,11 @@ class conVRNN(BaseModel):
         # input_dim -> hidden_dim
         # channels not changed
         self.phi_x = nn.Sequential(
-            Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
-            Encoder2DBlock(16, 16, stride=2, activation=act),  # 16x16
-            Encoder2DBlock(16, 32, stride=2, activation=act),  # 8x8
-            Encoder2DBlock(32, 32, stride=2, activation=act),  # 4x4
+            Encoder2DBlock(1, 16, stride=4, activation=act),  # 32x32
+            Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
+            Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
+            # Encoder2DBlock(64, 128, stride=2, activation=act),  # 4x4
+            # nn.AdaptiveAvgPool2d((2, 2)),
             nn.Flatten()
         )
 
@@ -45,11 +47,14 @@ class conVRNN(BaseModel):
             nn.ReLU())
 
         # encoder
+
         self.enc = nn.Sequential(
             nn.Linear(h_dim + h_dim, h_dim),
             nn.ReLU(),
             nn.Linear(h_dim, h_dim),
-            nn.ReLU())
+            nn.ReLU()
+        )
+
         self.enc_mean = nn.Linear(h_dim, latent_dim)
         self.enc_std = nn.Sequential(
             nn.Linear(h_dim, latent_dim),
@@ -72,11 +77,12 @@ class conVRNN(BaseModel):
             nn.ReLU())
 
         self.dec_std = nn.Sequential(
-            nn.Unflatten(1, (32, 4, 4)),
+            nn.Unflatten(1, (32, 2, 2)),
             Decoder2DBlock(32, 32, upscale_factor=2, activation=act),  # 8x8
-            Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 16x16
-            Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 32x32
-            Decoder2DBlock(16, 1, upscale_factor=2, activation=act),  # 64x64
+            Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 8x8
+            Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
+            # Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
+            nn.Conv2d(16, 1, kernel_size=1, stride=1, padding=0),
             nn.Softplus()
         )
 
@@ -84,14 +90,22 @@ class conVRNN(BaseModel):
             nn.Unflatten(1, (32, 4, 4)),
             Decoder2DBlock(32, 32, upscale_factor=2, activation=act),  # 8x8
             Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 16x16
-            Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 32x32
-            Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 64x64
+            Decoder2DBlock(16, 16, upscale_factor=4, activation=act),  # 32x32
+            # Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 64x64
             nn.Conv2d(16, 1, kernel_size=1, stride=1, padding=0),
             nn.Sigmoid()
         )
 
-        # recurrence
-        self.rnn = nn.GRU(h_dim + h_dim, h_dim, n_layers, bias)
+        self.rnn = nn.GRU(input_size=h_dim + h_dim, hidden_size=h_dim,
+                          num_layers=n_layers, bias=bias)
+
+        # if self.bidirectional:
+        #     self.reverse_rnn = nn.GRU(input_size=h_dim + h_dim, hidden_size=h_dim)
+        #     self.reverse_rnn.weight_ih_l0 = self.rnn.weight_ih_l0_reverse
+        #     self.reverse_rnn.weight_hh_l0 = self.rnn.weight_hh_l0_reverse
+        #     if bias:
+        #         self.reverse_rnn.bias_ih_l0 = self.rnn.bias_ih_l0_reverse
+        #         self.reverse_rnn.bias_hh_l0 = self.rnn.bias_hh_l0_reverse
 
         self.h_init = nn.Parameter(torch.zeros(n_layers, 1, h_dim))
 
@@ -166,8 +180,9 @@ class conVRNN(BaseModel):
     def sample(self, seq_len: int = 20) -> Tensor:
 
         sequence = []
-        h = torch.zeros(self.n_layers, 1, self.h_dim, device=self._device)
-        for t in range(seq_len):
+        h = self.h_init.expand(self.n_layers, 1, self.h_dim).contiguous()
+
+        for _ in range(seq_len):
 
             # prior
             prior_t = self.prior(h[-1])
@@ -192,18 +207,21 @@ class conVRNN(BaseModel):
 
         return torch.stack(sequence, dim=0).squeeze(1)
 
-    @property
+    @ property
     def _device(self) -> torch.device:
         return next(self.parameters()).device
 
 
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = conVRNN(h_dim=512, latent_dim=512, activation='relu').to(device)
+    model = ConVRNN(h_dim=512, latent_dim=512, activation='elu', bidirectional=False)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    # model.load_state_dict(torch.load('/home/nello/expVAE/checkpoints/h_0-sample__conVRNN_03071431best.pth')['state_dict'])
+    model.to(device)
+    x = torch.randn(12, 1, 20, 64, 64, device=device)
 
-    x = torch.randn(12, 1, 20, 64, 64, device=device).squeeze()
-    x = x.transpose(0, 1).unsqueeze(2)
+    y = torch.randn(128, 4, 4)
+    y = nn.AvgPool2d((4, 4))(y)
 
-    rec = model.sample(12)
-    pass
+    rec = model(x)
+    print(rec[0].shape)
