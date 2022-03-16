@@ -50,12 +50,14 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
 
             x_recon, *distribution = model(data)
 
-            loss = loss_function(x_recon, data, *distribution)
+            loss, _, _ = loss_function(x_recon, data, *distribution)
 
             test_loss += loss.item()
             pbar.set_postfix(loss=test_loss / num_samples)
             pbar.update()
 
+        if isinstance(x_recon, list):
+            x_recon = x_recon[0]
         imgs = gen_one_recon_img(data[0], x_recon[0])
 
         if wandb.run:
@@ -116,11 +118,4 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
 
 if __name__ == '__main__':
-    from model.conv3dVAE import Conv3dVAE
-    import torchvision
-
-    x = torch.randn(1, 20, 64, 64)
-    y = torch.randn(1, 20, 64, 64)
-
-    x = x.transpose(0, -1)
-    torchvision.utils.save_image(torch.cat([x, y], dim=0), 'test.png')
+    pass

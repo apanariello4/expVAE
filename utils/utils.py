@@ -18,21 +18,31 @@ def args() -> argparse.Namespace:
 
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=128)
-    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--latent-dim', type=int, default=512)
-    parser.add_argument('--alpha-warmup', type=int, default=10)
+
+    # KLD ALPHA
+    parser.add_argument('--alpha-warmup', type=int, default=10)  # if 0 no warmup
+    parser.add_argument('--alpha-min', type=float, default=0.0)
+    parser.add_argument('--alpha-max', type=float, default=1.0)
+
+    # LR
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--lr-steps', type=int, default=3)
+    parser.add_argument('--scheduler', type=str, default='step')
+
     parser.add_argument('--activation', type=str, default='relu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
     parser.add_argument('--recon-func', type=str, default='bce', choices=['mse', 'bce'])
-    parser.add_argument('--model', type=str, default='conv3d', choices=['loco', 'conv3d', 'vrnn'])
+    parser.add_argument('--model', type=str, default='conv3d', choices=['loco', 'conv3d', 'vrnn', 'bivrnn', 'dsvae'])
 
-    parser.add_argument('--resume', type=str, choices=['best', 'last'])
+    parser.add_argument('--resume', type=str)
+    parser.add_argument('--test-only', action='store_true')
     parser.add_argument('--one-class', type=int, default=3)
     parser.add_argument('--dataset', default='fmnist', choices=['mnist', 'fmnist'])
     parser.add_argument('--log', action='store_true')
     parser.add_argument('--save-checkpoint', action='store_true')
     parser.add_argument('--name', type=str)
+
     return parser.parse_args()
 
 

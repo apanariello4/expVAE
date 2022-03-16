@@ -72,7 +72,7 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
 
             x_recon, *distribution = model(data)
 
-            loss = loss_function(x_recon, data, *distribution, alpha)
+            loss, _, _ = loss_function(x_recon, data, *distribution, alpha)
 
             total_loss += loss.item()
             loss.backward()

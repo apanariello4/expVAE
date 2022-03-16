@@ -6,12 +6,14 @@ from platform import architecture
 import time
 from pathlib import Path
 from model.Bi_conVRNN import BidirectionalConVRNN
+from model.DSVAE import DisentangledVAE
 from model.LoCOVAE import LoCOVAE
 from model.conVRNN import ConVRNN
 from test import eval, eval_anom
 
 import torch
 from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingWarmRestarts
 from torchvision.utils import save_image
 import torch.nn as nn
 import wandb
@@ -25,38 +27,41 @@ def main(args: argparse.Namespace):
 
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
+    architecture = {'loco': LoCOVAE,
+                    'conv3d': Conv3dVAE,
+                    'vrnn': ConVRNN,
+                    'bivrnn': BidirectionalConVRNN,
+                    'dsvae': DisentangledVAE}[args.model]
+
     if args.model in ['loco', 'conv3d']:
-        architecture = {'loco': LoCOVAE, 'conv3d': Conv3dVAE}[args.model]
         model = architecture(latent_dim=args.latent_dim, activation=args.activation)
         if args.recon_func == 'bce':
             model.decoder.add_module("sigmoid", nn.Sigmoid())
 
     elif args.model in ['vrnn', 'bivrnn']:
-        architecture = {'vrnn': ConVRNN, 'bivrnn': BidirectionalConVRNN}[args.model]
         model = architecture(h_dim=512, latent_dim=args.latent_dim, activation=args.activation)
+
+    elif args.model == 'dsvae':
+        model = architecture()
 
     print(f'Model: {model.name}, num params: {model.count_parameters:,}')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
     optimizer = Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=args.epochs // args.lr_steps, gamma=0.1)
+    if args.scheduler == 'step':
+        scheduler = StepLR(optimizer, step_size=args.epochs // args.lr_steps)
+    elif args.scheduler == 'cosine':
+        scheduler = CosineAnnealingWarmRestarts(optimizer, eta_min=2e-4,
+                                                T_0=(args.epochs + 1) // 2, T_mult=1)
 
     best_test_loss = float('inf')
     resume_epoch = 0
 
     if args.resume:
-        if args.resume == 'best':
-            ckpt_dir = Path(args.ckpt_dir) / 'moving_model_best.pth'
-        else:
-            ckpt_dir = Path(args.ckpt_dir) / 'moving_checkpoint.pth'
-        assert os.path.exists(ckpt_dir)
+        assert os.path.exists(args.resume)
         print("Loading checkpoint")
-        checkpoint = torch.load(
-            os.path.join(
-                args.ckpt_dir,
-                'checkpoint.pth'))
+        checkpoint = torch.load(args.resume)
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         resume_epoch = checkpoint['epoch']
@@ -75,17 +80,18 @@ def main(args: argparse.Namespace):
 
     for epoch in range(resume_epoch, args.epochs):
         t0 = time.time()
-        train(model, train_loader, optimizer, scheduler, device, epoch, recon_func, alpha[epoch])
-
         min_max_loss = None
-        if args.model != 'vrnn':
-            mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device, recon_func)
+        if not args.test_only:
+            train(model, train_loader, optimizer, scheduler, device, epoch, recon_func, alpha[epoch])
+
+            if args.model not in ['vrnn', 'bivrnn', 'dsvae']:
+                mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device, recon_func)
 
         test_loss = eval(model, device, test_loader, epoch, recon_func)
         roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
-        print(f'Epoch {epoch} val_loss: {test_loss:.4f} \tROC-AUC: {roc_auc:.4f} AP: {ap:.4f}\tEpoch time {time.time() - t0:.4f}')
+        print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g} m')
 
-        if args.save_checkpoint:
+        if args.save_checkpoint and not args.test_only:
             if test_loss < best_test_loss or epoch == args.epochs - 1:
                 best_test_loss = test_loss
                 save_checkpoint(
@@ -98,7 +104,8 @@ def main(args: argparse.Namespace):
         with torch.no_grad():
             model.train()
             generated = model.sample()
-        # save_image(generated, './generated_moving.png')
+        # must be 20,1,64,64
+        save_image(generated, './generated_moving.png')
 
         if wandb.run:
             wandb.log({
@@ -118,5 +125,5 @@ if __name__ == '__main__':
     # generated = model.sample()
     # save_image(generated, './generated_train.png')
 
-    # deterministic_behavior()
-    # main(args())
+    deterministic_behavior()
+    main(args())
