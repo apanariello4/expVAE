@@ -9,7 +9,7 @@ sys.path.append(base_path)
 from model.block2d import Decoder2DBlock, Encoder2DBlock
 from model.vae_loss import VRNNLoss
 from model.base_model import BaseModel
-
+from model.temporal_conv import TemporalConv1D, TemporalConv3D
 
 EPS = torch.finfo(torch.float).eps
 
@@ -37,10 +37,11 @@ class ConVRNN(BaseModel):
             Encoder2DBlock(1, 16, stride=4, activation=act),  # 32x32
             Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
             Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
-            # Encoder2DBlock(64, 128, stride=2, activation=act),  # 4x4
+            # Encoder2DBlock(32, 64, stride=2, activation=act),  # 4x4
             # nn.AdaptiveAvgPool2d((2, 2)),
             nn.Flatten()
         )
+        self.temporal_conv = TemporalConv1D(512, h_dim, stride=1, activation=act)
 
         self.phi_z = nn.Sequential(
             nn.Linear(latent_dim, h_dim),
@@ -76,15 +77,15 @@ class ConVRNN(BaseModel):
             nn.Linear(h_dim, h_dim),
             nn.ReLU())
 
-        self.dec_std = nn.Sequential(
-            nn.Unflatten(1, (32, 2, 2)),
-            Decoder2DBlock(32, 32, upscale_factor=2, activation=act),  # 8x8
-            Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 8x8
-            Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
-            # Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
-            nn.Conv2d(16, 1, kernel_size=1, stride=1, padding=0),
-            nn.Softplus()
-        )
+        # self.dec_std = nn.Sequential(
+        #     nn.Unflatten(1, (32, 2, 2)),
+        #     Decoder2DBlock(32, 32, upscale_factor=2, activation=act),  # 8x8
+        #     Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 8x8
+        #     Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
+        #     # Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
+        #     nn.Conv2d(16, 1, kernel_size=1, stride=1, padding=0),
+        #     nn.Softplus()
+        # )
 
         self.dec_mean = nn.Sequential(
             nn.Unflatten(1, (32, 4, 4)),
@@ -99,19 +100,32 @@ class ConVRNN(BaseModel):
         self.rnn = nn.GRU(input_size=h_dim + h_dim, hidden_size=h_dim,
                           num_layers=n_layers, bias=bias)
 
-        # if self.bidirectional:
-        #     self.reverse_rnn = nn.GRU(input_size=h_dim + h_dim, hidden_size=h_dim)
-        #     self.reverse_rnn.weight_ih_l0 = self.rnn.weight_ih_l0_reverse
-        #     self.reverse_rnn.weight_hh_l0 = self.rnn.weight_hh_l0_reverse
-        #     if bias:
-        #         self.reverse_rnn.bias_ih_l0 = self.rnn.bias_ih_l0_reverse
-        #         self.reverse_rnn.bias_hh_l0 = self.rnn.bias_hh_l0_reverse
-
         self.h_init = nn.Parameter(torch.zeros(n_layers, 1, h_dim))
+
+    def encode(self, x: Tensor) -> Tensor:
+        """Should return a tensor of shape (t, b, h_dim)"""
+        t, b, ch, h, w = x.size()
+        x = x.reshape(t * b, ch, h, w)
+        x = self.phi_x(x)
+        if len(x.shape) == 2:  # already flattened
+            x = x.view(t, b, -1)  # (t, b, h_dim)
+            x = x.permute(1, 2, 0)  # (b, h_dim, t) # for 1d conv
+            x = self.temporal_conv(x)
+            x = x.permute(2, 0, 1)  # (t, b, h_dim)
+            return x
+        elif len(x.shape) == 4:  # not flattened
+            _, ch, h, w = x.size()
+            x = x.view(t, b, ch, h, w)
+            x = x.permute(1, 2, 0, 3, 4)  # (b, ch, t, h, w) for 3d conv
+            x = self.temporal_conv(x)
+            x = x.permute(2, 0, 1, 3, 4)  # (t, b, ch, h, w)
+            x = x.reshape(t, b, -1).contiguous()
+            return x
 
     def forward(self, x: Tensor):
 
         x = x.permute(2, 0, 1, 3, 4)  # t, b, ch, h, w
+        phi_x = self.encode(x)  # t, b, h
 
         all_enc_mean, all_enc_std = [], []
         all_dec_mean, all_dec_std = [], []
@@ -126,7 +140,7 @@ class ConVRNN(BaseModel):
         # h = torch.zeros(self.n_layers, x.size(1), self.h_dim, device=self._device)
         for t in range(x.size(0)):
 
-            phi_x_t = self.phi_x(x[t])
+            phi_x_t = phi_x[t]
 
             # encoder
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
@@ -145,7 +159,7 @@ class ConVRNN(BaseModel):
             # decoder
             dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
-            dec_std_t = self.dec_std(dec_t)
+            # dec_std_t = self.dec_std(dec_t)
 
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
@@ -157,7 +171,7 @@ class ConVRNN(BaseModel):
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
             all_dec_mean.append(dec_mean_t)
-            all_dec_std.append(dec_std_t)
+            # all_dec_std.append(dec_std_t)
             all_prior_mean.append(prior_mean_t)
             all_prior_std.append(prior_std_t)
 
@@ -166,7 +180,7 @@ class ConVRNN(BaseModel):
         all_enc_mean = torch.stack(all_enc_mean, dim=0)
         all_enc_std = torch.stack(all_enc_std, dim=0)
         all_dec_mean = torch.stack(all_dec_mean, dim=0)
-        all_dec_std = torch.stack(all_dec_std, dim=0)
+        # all_dec_std = torch.stack(all_dec_std, dim=0)
         all_prior_mean = torch.stack(all_prior_mean, dim=0)
         all_prior_std = torch.stack(all_prior_std, dim=0)
 
@@ -199,6 +213,8 @@ class ConVRNN(BaseModel):
             # dec_std_t = self.dec_std(dec_t)
 
             phi_x_t = self.phi_x(dec_mean_t)
+            if len(phi_x_t.shape) == 4:
+                phi_x_t = phi_x_t.view(1, -1)
 
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
@@ -218,10 +234,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     # model.load_state_dict(torch.load('/home/nello/expVAE/checkpoints/h_0-sample__conVRNN_03071431best.pth')['state_dict'])
     model.to(device)
-    x = torch.randn(12, 1, 20, 64, 64, device=device)
-
-    y = torch.randn(128, 4, 4)
-    y = nn.AvgPool2d((4, 4))(y)
+    x = torch.randn(16, 1, 20, 64, 64, device=device)
 
     rec = model(x)
     print(rec[0].shape)
