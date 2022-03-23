@@ -75,9 +75,9 @@ def save_checkpoint(model, epoch: int, optimizer: torch.optim,
 
 def get_alpha_scheduler(args: argparse.Namespace) -> torch.Tensor:
     alpha = torch.linspace(args.alpha_min, args.alpha_max, args.alpha_warmup)
-    if args.scheduler == 'warmup':
+    if args.alpha_scheduler == 'warmup':
         alpha = torch.cat((alpha, torch.full((args.epochs - args.alpha_warmup,), fill_value=args.alpha_max)))
-    elif args.scheduler == 'cyclic':
+    elif args.alpha_scheduler == 'cyclic':
         cycles = args.epochs // (args.alpha_warmup * 2)
         if cycles < 4:
             Logger.warning(f'Cycles should be higher, cycles={cycles}')
