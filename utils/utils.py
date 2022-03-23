@@ -1,4 +1,5 @@
 import argparse
+from logging import Logger
 import os
 import random
 from pathlib import Path
@@ -77,9 +78,13 @@ def get_alpha_scheduler(args: argparse.Namespace) -> torch.Tensor:
     if args.scheduler == 'warmup':
         alpha = torch.cat((alpha, torch.full((args.epochs - args.alpha_warmup,), fill_value=args.alpha_max)))
     elif args.scheduler == 'cyclic':
-        assert args.epochs % (args.alpha_warmup * 2) == 0
+        cycles = args.epochs // (args.alpha_warmup * 2)
+        if cycles < 4:
+            Logger.warning(f'Cycles should be higher, cycles={cycles}')
         alpha = torch.cat((alpha, torch.full((args.alpha_warmup,), fill_value=args.alpha_max)))
         alpha = alpha.repeat(args.epochs // (args.alpha_warmup * 2))
+        if alpha.shape[0] < args.epochs:
+            alpha = torch.cat((alpha, torch.full((args.epochs - alpha.shape[0],), fill_value=args.alpha_max)))
 
     return alpha
 
