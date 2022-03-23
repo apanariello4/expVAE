@@ -17,7 +17,7 @@ from model.linear import ResidualLinear
 def loss_fn(recon_seq: Tensor, original_seq: Tensor,
             f_mean: Tensor, f_logvar: Tensor,
             z_post_mean: Tensor, z_post_logvar: Tensor,
-            z_prior_mean: Tensor, z_prior_logvar: Tensor,
+            z_prior_mean: Tensor, z_prior_logvar: Tensor, min_max_train: Optional[Tuple[Tensor]] = None,
             alpha: float = 1.0, frame_level: bool = False) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Loss function consists of 3 parts, the reconstruction term that is the MSE loss between the generated and the original images
