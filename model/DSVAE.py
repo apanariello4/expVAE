@@ -171,7 +171,7 @@ class DisentangledVAE(BaseModel):
 
     """
 
-    def __init__(self, f_dim=256, z_dim=32, conv_dim=1024, step=128, in_channels=1, in_size=64, hidden_dim=512,
+    def __init__(self, f_dim=256, z_dim=32, conv_dim=1024, in_channels=1, in_size=64, hidden_dim=512,
                  frames=20, nonlinearity=None, factorised=False):
         super(DisentangledVAE, self).__init__()
         self.f_dim = f_dim
@@ -180,7 +180,6 @@ class DisentangledVAE(BaseModel):
         self.conv_dim = conv_dim
         self.hidden_dim = hidden_dim
         self.factorised = factorised
-        self.step = step
         self.in_size = in_size
         self.in_channels = in_channels
         self.name = 'DisentangledVAE'
@@ -232,24 +231,6 @@ class DisentangledVAE(BaseModel):
             nn.Sigmoid()
         )
 
-        # self.conv = nn.Sequential(
-        #     ConvUnit(in_channels, step, 5, 1, 2),  # 3*64*64 -> 256*64*64
-        #     ConvUnit(step, step, 5, 2, 2),  # 256,64,64 -> 256,32,32
-        #     ConvUnit(step, step, 5, 2, 2),  # 256,32,32 -> 256,16,16
-        #     ConvUnit(step, step, 5, 2, 2),  # 256,16,16 -> 256,8,8
-        # )
-        self.final_conv_size = in_size // 8
-        # self.conv_fc = nn.Sequential(LinearUnit(step * (self.final_conv_size ** 2), self.conv_dim * 2),
-        #                              LinearUnit(self.conv_dim * 2, self.conv_dim))
-
-        # self.deconv_fc = nn.Sequential(LinearUnit(self.f_dim + self.z_dim, self.conv_dim * 2, False),
-        #                                LinearUnit(self.conv_dim * 2, step * (self.final_conv_size ** 2), False))
-        # self.deconv = nn.Sequential(
-        #     ConvUnitTranspose(step, step, 5, 2, 2, 1),
-        #     ConvUnitTranspose(step, step, 5, 2, 2, 1),
-        #     ConvUnitTranspose(step, step, 5, 2, 2, 1),
-        #     ConvUnitTranspose(step, in_channels, 5, 1, 2, 0, nonlinearity=nn.Sigmoid()))
-
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
@@ -258,7 +239,7 @@ class DisentangledVAE(BaseModel):
                 nn.init.kaiming_normal_(m.weight)
 
     # If random sampling is true, reparametrization occurs else z_t is just set to the mean
-    def sample_z(self, batch_size, random_sampling=True):
+    def sample_z(self, batch_size: int, seq_len: int, random_sampling: bool = True):
         z_out = None  # This will ultimately store all z_s in the format [batch_size, frames, z_dim]
         z_means = None
         z_logvars = None
@@ -270,7 +251,9 @@ class DisentangledVAE(BaseModel):
         h_t = torch.zeros(batch_size, self.hidden_dim, device=self._device)
         c_t = torch.zeros(batch_size, self.hidden_dim, device=self._device)
 
-        for _ in range(self.frames):
+        seq_len = self.frames if seq_len is None else seq_len
+
+        for _ in range(seq_len):
             h_t, c_t = self.z_prior_lstm(z_t, (h_t, c_t))
             z_mean_t = self.z_prior_mean(h_t)
             z_logvar_t = self.z_prior_logvar(h_t)
@@ -322,17 +305,19 @@ class DisentangledVAE(BaseModel):
         else:
             return mean
 
-    def encode_f(self, x):
+    def encode_f(self, x, random_sampling: bool):
+        random_sampling = self.training if random_sampling is None else random_sampling
+
         lstm_out, _ = self.f_lstm(x)
         # The features of the last timestep of the forward RNN is stored at the end of lstm_out in the first half, and the features
         # of the "first timestep" of the backward RNN is stored at the beginning of lstm_out in the second half
         # For a detailed explanation, check: https://gist.github.com/ceshine/bed2dadca48fe4fe4b4600ccce2fd6e1
-        backward = lstm_out[:, 0, self.hidden_dim:2 * self.hidden_dim]
-        frontal = lstm_out[:, self.frames - 1, 0:self.hidden_dim]
+        backward = lstm_out[:, 0, self.hidden_dim:]
+        frontal = lstm_out[:, -1, :self.hidden_dim]
         lstm_out = torch.cat((frontal, backward), dim=1)
         mean = self.f_mean(lstm_out)
         logvar = self.f_logvar(lstm_out)
-        return mean, logvar, self.reparameterize(mean, logvar, self.training)
+        return mean, logvar, self.reparameterize(mean, logvar, random_sampling)
 
     def encode_z(self, x, f):
         if self.factorised is True:
@@ -363,14 +348,20 @@ class DisentangledVAE(BaseModel):
         return loss_fn
 
     def sample(self, seq_len: int = 20):
-
-        return torch.zeros((20, 1, 64, 64), device=self._device)
+        _, _, z = self.sample_z(1, seq_len, random_sampling=True)
+        _, _, f = self.encode_f(torch.zeros(1, seq_len, self.conv_dim, device=self._device), random_sampling=True)
+        zf = torch.cat((z, f.unsqueeze(1).expand(-1, seq_len, self.f_dim)), dim=2)
+        recon_x = self.decode_frames(zf)
+        return recon_x.squeeze(0)
 
 
 if __name__ == '__main__':
     from torchinfo import summary
-
+    import torchvision
     model = DisentangledVAE().cuda()
-    x = torch.randn((7, 20, 1, 64, 64), device=model._device)
-    y = model(x)
-    a = summary(model, input_size=(112, 20, 1, 64, 64))
+    checkpoint = torch.load('/home/nello/expVAE/checkpoints/less_param__DisentangledVAE_03141757_best.pth')
+    model.load_state_dict(checkpoint['state_dict'])
+    #x = torch.randn((7, 20, 1, 64, 64), device=model._device)
+    y = model.sample()
+    torchvision.utils.save_image(y, './sampledsvae.png')
+    #a = summary(model, input_size=(112, 20, 1, 64, 64))

@@ -118,7 +118,13 @@ class VRNNLoss(nn.Module):
     def __init__(self,):
         super(VRNNLoss, self).__init__()
 
-    def frame_level_loss(self, x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior):
+    def frame_level_loss(self, x_recon, x,
+                         mu_posterior, std_posterior,
+                         mu_prior, std_prior, min_max: Tuple[Tensor] = None,
+                         return_min_max: bool = False,):
+
+        assert not (return_min_max and min_max), 'return_min_max and min_max cannot be both True'
+
         batch_size, depth = x.shape[0], x.shape[2]
         x = x.transpose(1, 2).reshape(batch_size, depth, -1)
         x_recon = x_recon.transpose(1, 2).reshape(batch_size, depth, -1)
@@ -132,16 +138,22 @@ class VRNNLoss(nn.Module):
 
         kld_frame_level = kld_gauss(mu_posterior, std_posterior,
                                     mu_prior, std_prior, frame_level=True)
+        if return_min_max:
+            return nll_frame_level, kld_frame_level
 
-        min_max_loss = (nll_frame_level.min(), nll_frame_level.max(),
-                        kld_frame_level.min(), kld_frame_level.max())
+        if min_max:
+            nll_frame_level = min_max_normalization(nll_frame_level, *min_max[:2])
+            kld_frame_level = min_max_normalization(kld_frame_level, *min_max[2:])
 
         return nll_frame_level + kld_frame_level, nll_frame_level, kld_frame_level
 
     def forward(self, x_recon: Tensor, x: Tensor,
                 mu_std_posterior: Tuple[Tensor, Tensor],
                 mu_std_prior: Tuple[Tensor, Tensor],
-                alpha: float = 1.0, frame_level: bool = False) -> Tensor:
+                alpha: float = 1.0, min_max_train: Tuple[Tensor] = None,
+                frame_level: bool = False, return_min_max: bool = False) -> Tensor:
+
+        assert not (return_min_max and frame_level), 'return_min_max and frame_level cannot be both True'
 
         mu_posterior, std_posterior = mu_std_posterior
         mu_prior, std_prior = mu_std_prior
@@ -152,9 +164,13 @@ class VRNNLoss(nn.Module):
         loss = nll + alpha * kld
 
         if frame_level:
-            loss, recon_error, kld_error = self.frame_level_loss(x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior)
+            loss, recon_error, kld_error = self.frame_level_loss(x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior, min_max=min_max_train)
 
             return loss, recon_error, kld_error
+
+        if return_min_max:
+            nll_frame, kld_frame = self.frame_level_loss(x_recon, x, mu_posterior, std_posterior, mu_prior, std_prior, return_min_max=True)
+            return nll_frame, kld_frame
 
         return loss, nll, kld
 

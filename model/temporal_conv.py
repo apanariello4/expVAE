@@ -1,22 +1,25 @@
 import torch.nn as nn
+import numpy as np
 
 
 class TemporalConv1D(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, stride: int,
-                 activation: nn.Module = nn.ReLU(inplace=True)):
+    def __init__(self, in_channels: int, out_channels: int,
+                 activation: nn.Module = nn.ReLU(inplace=True), masked: bool = False):
         super(TemporalConv1D, self).__init__()
 
+        conv1d = MaskedConv1D if masked else nn.Conv1d
+
         self.activation = activation
-        self.conv1 = nn.Conv1d(in_channels, out_channels,
-                               kernel_size=3, stride=1, padding=1)
+        self.conv1 = conv1d(in_channels, out_channels,
+                            kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm1d(out_channels)
 
-        self.conv2 = nn.Conv1d(out_channels, out_channels,
-                               kernel_size=3, stride=1, padding=1)
+        self.conv2 = conv1d(out_channels, out_channels,
+                            kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm1d(out_channels)
 
-        self.downsample = nn.Conv1d(in_channels, out_channels,
-                                    kernel_size=3, stride=stride, padding=1)
+        self.downsample = conv1d(in_channels, out_channels,
+                                 kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         residual = x
@@ -29,6 +32,21 @@ class TemporalConv1D(nn.Module):
         x = self.bn2(x)
 
         return self.activation(x + self.downsample(residual))
+
+
+class MaskedConv1D(nn.Conv1d):
+    def __init__(self, *args, **kwargs):
+        super(MaskedConv1D, self).__init__(*args, **kwargs)
+
+        self.register_buffer('mask', self.weight.data.clone())
+        _, _, k = self.weight.size()
+        self.mask.fill_(0)
+
+        self.mask[:, :, :np.ceil(k / 2).astype(int)] = 1
+
+    def forward(self, x):
+        self.weight.data *= self.mask
+        return super(MaskedConv1D, self).forward(x)
 
 
 class TemporalConv3D(nn.Module):
@@ -65,7 +83,7 @@ if __name__ == '__main__':
     import torch
     #x = torch.randn(16, 20, 32, 8, 8)
     #model = TemporalConv_3d(32, 32, 1)
-    x = torch.randn(16, 20, 512)
-    model = TemporalConv1D(20, 20, 1)
+    x = torch.randn(16, 512, 20)
+    model = TemporalConv1D(512, 512, masked=True)
     y = model(x)
     print(y.shape)

@@ -28,7 +28,8 @@ def args() -> argparse.Namespace:
     # LR
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--lr-steps', type=int, default=3)
-    parser.add_argument('--scheduler', type=str, default='step')
+    parser.add_argument('--scheduler', type=str, default='step', choices=['step', 'cosine'])
+    parser.add_argument('--alpha-scheduler', type=str, default='step', choices=['warmup', 'cyclic'])
 
     parser.add_argument('--activation', type=str, default='relu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
@@ -42,6 +43,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--log', action='store_true')
     parser.add_argument('--save-checkpoint', action='store_true')
     parser.add_argument('--name', type=str)
+    parser.add_argument('--attention', action='store_true')
 
     return parser.parse_args()
 
@@ -70,6 +72,18 @@ def save_checkpoint(model, epoch: int, optimizer: torch.optim,
         torch.save(state, best_file)
 
 
+def get_alpha_scheduler(args: argparse.Namespace) -> torch.Tensor:
+    alpha = torch.linspace(args.alpha_min, args.alpha_max, args.alpha_warmup)
+    if args.scheduler == 'warmup':
+        alpha = torch.cat((alpha, torch.full((args.epochs - args.alpha_warmup,), fill_value=args.alpha_max)))
+    elif args.scheduler == 'cyclic':
+        assert args.epochs % (args.alpha_warmup * 2) == 0
+        alpha = torch.cat((alpha, torch.full((args.alpha_warmup,), fill_value=args.alpha_max)))
+        alpha = alpha.repeat(args.epochs // (args.alpha_warmup * 2))
+
+    return alpha
+
+
 def deterministic_behavior(seed: int = 1) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -91,25 +105,26 @@ def apply_jet_color_map(img: np.ndarray) -> np.ndarray:
 
 
 def save_cam(image: np.ndarray, filename: str,
-             gcam: np.ndarray, gcam_loss) -> None:
-    image = np.stack(([image] * 3), axis=2)
+             gcam: np.ndarray, gcam_loss=None) -> None:
+    image = np.stack(([image] * 3), axis=-1)
 
     # latent space gcam
     gcam = apply_jet_color_map(gcam)
     gcam = np.asarray(gcam, dtype=np.float) + np.asarray(image, dtype=np.float)
     gcam = 255 * gcam / np.max(gcam)
     gcam = np.uint8(gcam)
-    imgs = np.concatenate((image, gcam), axis=1)
+    imgs = np.concatenate((image, gcam), axis=0)
 
     # loss gcam
-    gcam_loss = apply_jet_color_map(gcam_loss)
-    gcam_loss = np.asarray(gcam_loss, dtype=np.float) + \
-        np.asarray(image, dtype=np.float)
-    gcam_loss = 255 * gcam_loss / np.max(gcam_loss)
-    gcam_loss = np.uint8(gcam_loss)
-    imgs = np.concatenate((imgs, gcam_loss), axis=1)
+    if gcam_loss:
+        gcam_loss = apply_jet_color_map(gcam_loss)
+        gcam_loss = np.asarray(gcam_loss, dtype=np.float) + \
+            np.asarray(image, dtype=np.float)
+        gcam_loss = 255 * gcam_loss / np.max(gcam_loss)
+        gcam_loss = np.uint8(gcam_loss)
+        imgs = np.concatenate((imgs, gcam_loss), axis=1)
 
-    cv2.imwrite(filename, imgs)
+    cv2.imwrite(filename, imgs[0])
 
 
 def get_project_root() -> Path:

@@ -1,3 +1,4 @@
+import argparse
 from typing import Tuple
 import torch
 import wandb
@@ -36,7 +37,8 @@ def gen_one_recon_img(x: Tensor, x_hat: Tensor) -> Tensor:
 
 def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon_func: str) -> float:
     model.eval()
-    test_loss = 0
+    test_loss = 0.0
+    total_recon_err, total_kld_err = 0.0, 0.0
     num_samples = 0
     loss_function = model.get_loss_function(recon_func=recon_func)
 
@@ -50,10 +52,12 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
 
             x_recon, *distribution = model(data)
 
-            loss, _, _ = loss_function(x_recon, data, *distribution)
+            loss, recon_err, kld_err = loss_function(x_recon, data, *distribution)
 
             test_loss += loss.item()
-            pbar.set_postfix(loss=test_loss / num_samples)
+            total_recon_err += recon_err.item()
+            total_kld_err += kld_err.item()
+            pbar.set_postfix(loss=test_loss / num_samples, recon_err=total_recon_err / num_samples, kld_err=total_kld_err / num_samples)
             pbar.update()
 
         if isinstance(x_recon, list):
@@ -63,6 +67,8 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
         if wandb.run:
             w_imgs = wandb.Image(imgs, caption=f'Reconstruction ep {epoch}')
             wandb.log({'test_loss': test_loss / num_samples,
+                       'test_recon_err': total_recon_err / num_samples,
+                       'test_kld_err': total_kld_err / num_samples,
                        'reconstruction': w_imgs}, step=epoch)
 
     test_loss /= len(test_loader.dataset)
@@ -82,10 +88,10 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
             recon_batch, *distribution = model(data)
 
-            if min_max_train:
-                anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, *distribution, min_max_train, recon_func=recon_func)
-            else:
-                anomaly_score, recon_err, kld_err = loss_function(recon_batch, data, *distribution, frame_level=True)
+            # if min_max_train:
+            #     anomaly_score, recon_err, kld_err = vae_loss_normalized(recon_batch, data, *distribution, min_max_train, recon_func=recon_func)
+            # else:
+            anomaly_score, recon_err, kld_err = loss_function(recon_batch, data, *distribution, min_max_train=min_max_train, frame_level=True)
 
             labels_scores += list(
                 zip(target.view(-1).cpu().data.numpy().tolist(),

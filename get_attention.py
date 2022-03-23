@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 
 from model.convVAE import ConvVAE
-from model.gradCAM import gradCAM
+from model.gradCAM import GradCAM
 from utils.utils import deterministic_behavior, load_mnist_one_class, save_cam, load_fmnist_one_class
 import numpy as np
 import cv2
@@ -44,7 +44,7 @@ def main(args):
     print(
         f"Model loaded\n Inlier class: {checkpoint['inlier_class']}, Outlier class: {args.outlier_class}\n",
         f"Train Dataset: {checkpoint['dataset']}, Test Dataset: {args.dataset}")
-    att = gradCAM(model, device)
+    att = GradCAM(model, device)
 
     test_index = 0
     for x, _ in test_loader:

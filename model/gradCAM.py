@@ -1,28 +1,25 @@
 from collections import OrderedDict
+from importlib.metadata import distribution
 from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from model.base_model import BaseModel
 
-from .convVAE import ConvVAE
 
-
-class gradCAM():
-    def __init__(self, model: ConvVAE, device: torch.device):
+class GradCAM():
+    def __init__(self, model: BaseModel):
         self.model = model
-        self.device = device
-        self.model.to(self.device)
-        self.model.eval()
 
         self.outputs_backward = OrderedDict()
         self.outputs_forward = OrderedDict()
         self._set_hook_func()
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
-        x_hat, self.mu, self.logvar = self.model(x)
+        x_hat, *distribution = self.model(x)
         self.image_size = x.size(-1)
-        return x_hat, self.mu, self.logvar
+        return x_hat, *distribution[0]
 
     def _set_hook_func(self) -> None:
         def func_f(module, input, f_output):
@@ -65,14 +62,14 @@ class gradCAM():
         # backprop z wrt to conv_output
         grad_z = torch.autograd.grad(
             outputs=z, inputs=conv_output,
-            grad_outputs=torch.ones(z.size()).to(self.device), retain_graph=True,
+            grad_outputs=torch.ones(z.size()).to(self.model._device), retain_graph=True,
             only_inputs=True)[0]
 
         grad_loss = torch.autograd.grad(
             outputs=reconstruction_loss, inputs=conv_output,
             grad_outputs=torch.ones(
                 reconstruction_loss.size()).to(
-                self.device),
+                self.model._device),
             only_inputs=True)[0]
 
         self.model.zero_grad()
@@ -80,18 +77,18 @@ class gradCAM():
         alpha = self._get_grad_weights(grad_z)
         beta = self._get_grad_weights(grad_loss)
 
-        maps = F.relu(torch.sum((alpha * conv_output), dim=1))
+        maps = F.relu(torch.sum((alpha * conv_output), dim=1)).unsqueeze(1)
         maps = F.interpolate(
             maps,
             size=self.image_size,
             mode='bilinear',
             align_corners=False)
 
-        maps_loss = F.relu(beta * grad_loss)
-        maps_loss = F.interpolate(
-            maps_loss,
-            size=self.image_size,
-            mode='bilinear',
-            align_corners=False)
+        # maps_loss = F.relu(beta * grad_loss)
+        # maps_loss = F.interpolate(
+        #     maps_loss,
+        #     size=self.image_size,
+        #     mode='bilinear',
+        #     align_corners=False)
 
-        return maps, maps_loss
+        return maps  # , maps_loss

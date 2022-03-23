@@ -2,25 +2,25 @@
 import argparse
 import datetime
 import os
-from platform import architecture
 import time
-from pathlib import Path
-from model.Bi_conVRNN import BidirectionalConVRNN
-from model.DSVAE import DisentangledVAE
-from model.LoCOVAE import LoCOVAE
-from model.conVRNN import ConVRNN
 from test import eval, eval_anom
 
 import torch
-from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingWarmRestarts
-from torchvision.utils import save_image
 import torch.nn as nn
+from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, StepLR
+from torchvision.utils import save_image
+
 import wandb
+from model.Bi_conVRNN import BidirectionalConVRNN
 from model.conv3dVAE import Conv3dVAE
+from model.conVRNN import ConVRNN
+from model.DSVAE import DisentangledVAE
+from model.gradCAM import GradCAM
+from model.LoCOVAE import LoCOVAE
 from train import aggregate, train
 from utils.dataset_loaders import load_moving_mnist
-from utils.utils import args, deterministic_behavior, save_checkpoint
+from utils.utils import args, deterministic_behavior, get_alpha_scheduler, save_checkpoint, save_cam
 
 
 def main(args: argparse.Namespace):
@@ -60,23 +60,23 @@ def main(args: argparse.Namespace):
 
     if args.resume:
         assert os.path.exists(args.resume)
-        print("Loading checkpoint")
         checkpoint = torch.load(args.resume)
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         resume_epoch = checkpoint['epoch']
-        print("Loaded checkpoint")
-
-    alpha = torch.linspace(0, 1, args.alpha_warmup)
-    alpha = torch.cat((alpha, torch.ones(args.epochs - len(alpha))))
+        print(f"Loaded checkpoint {args.resume.split('/')[-1]}")
 
     now = datetime.datetime.now().strftime("%m%d%H%M")
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='exp_vae', name=f"{name}{model.name}_{args.activation}_{args.recon_func}_{now}", config=args)
+        wandb.init(project='exp_vae', name=f"{name}{model.name}_{args.activation}_{now}", config=args)
         wandb.watch(model)
 
     recon_func = args.recon_func
+    if args.attention:
+        gradcam = GradCAM(model)
+
+    alpha = get_alpha_scheduler(args)
 
     for epoch in range(resume_epoch, args.epochs):
         t0 = time.time()
@@ -84,12 +84,31 @@ def main(args: argparse.Namespace):
         if not args.test_only:
             train(model, train_loader, optimizer, scheduler, device, epoch, recon_func, alpha[epoch])
 
-            if args.model not in ['vrnn', 'bivrnn', 'dsvae']:
-                mu_avg, var_avg, min_max_loss = aggregate(model, train_loader, device, recon_func)
+            if args.model not in ['bivrnn', 'dsvae']:
+                _, _, min_max_loss = aggregate(model, train_loader, device, recon_func)
 
         test_loss = eval(model, device, test_loader, epoch, recon_func)
         roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
         print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g} m')
+
+    if args.attention:
+        # model.eval()
+        sequence = next(iter(test_loader))[0].to(device)
+        x_hat, mu, logvar = gradcam.forward(sequence)
+
+        maps = gradcam.get_attention_map(sequence, x_hat, mu, logvar, target_layer='phi_x.2.downsample')
+        raw_image = (sequence * 255.0).squeeze().cpu().numpy()
+        im_path = './results/'
+        if not os.path.exists(im_path):
+            os.mkdir(im_path)
+        base_path = im_path + args.name
+
+        save_cam(
+            raw_image,
+            base_path + f"att{epoch}.png",
+            maps.squeeze().cpu().data.numpy(),
+            # loss_maps.squeeze().cpu().data.numpy()
+        )
 
         if args.save_checkpoint and not args.test_only:
             if test_loss < best_test_loss or epoch == args.epochs - 1:

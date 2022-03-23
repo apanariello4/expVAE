@@ -41,7 +41,10 @@ class ConVRNN(BaseModel):
             # nn.AdaptiveAvgPool2d((2, 2)),
             nn.Flatten()
         )
-        self.temporal_conv = TemporalConv1D(512, h_dim, stride=1, activation=act)
+        self.temporal_conv = nn.Sequential(
+            #TemporalConv1D(512, 512, activation=act, masked=True),
+            TemporalConv1D(512, h_dim, activation=act, masked=True),
+        )
 
         self.phi_z = nn.Sequential(
             nn.Linear(latent_dim, h_dim),

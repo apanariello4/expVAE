@@ -1,13 +1,11 @@
 from typing import Tuple
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import wandb
-from model.vae_loss import vae_loss
 
 
 def aggregate(model, train_loader: DataLoader,
@@ -18,8 +16,8 @@ def aggregate(model, train_loader: DataLoader,
     mu_agg = torch.zeros(latent_dim).to(device)
     var_agg = torch.zeros(latent_dim).to(device)
     mu_squared_agg = torch.zeros(latent_dim).to(device)
-    min_recon, min_kld = float('inf'), float('inf')
-    max_recon, max_kld = float('-inf'), float('-inf')
+
+    all_recon_errors, all_kld_errors = torch.Tensor(), torch.Tensor()
 
     loss_function = model.get_loss_function(recon_func=recon_func)
 
@@ -27,30 +25,26 @@ def aggregate(model, train_loader: DataLoader,
         for data, _ in train_loader:
 
             data = data.to(device)
-            x_hat, mu, logvar = model(data)
+            x_hat, *distribution = model(data)
 
-            _, min_max_loss = loss_function(x_hat, data, mu, logvar, return_min_max=True)
+            mu, logvar = distribution[0]
+            recon_error, kld_error = loss_function(x_hat, data, *distribution, return_min_max=True)
+            all_recon_errors = torch.cat((all_recon_errors, recon_error.view(-1).cpu()))
+            all_kld_errors = torch.cat((all_kld_errors, kld_error.view(-1).cpu()))
             var = torch.exp(logvar)
 
-            var_agg += var.sum(dim=0)
-            mu_agg += mu.sum(dim=0)
-            mu_squared_agg += (mu ** 2).sum(dim=0)
+            # var_agg += var.sum(dim=0)
+            # mu_agg += mu.sum(dim=0)
+            # mu_squared_agg += (mu ** 2).sum(dim=0)
 
             counter += len(data)
-            if min_max_loss[0] < min_recon:
-                min_recon = min_max_loss[0]
-            if min_max_loss[1] > max_recon:
-                max_recon = min_max_loss[1]
-            if min_max_loss[2] < min_kld:
-                min_kld = min_max_loss[2]
-            if min_max_loss[3] > max_kld:
-                max_kld = min_max_loss[3]
             pbar.update()
 
     mu_agg /= counter
 
     var_agg = var_agg / counter + mu_squared_agg / counter - mu_agg**2
-    min_max_loss = (min_recon, max_recon, min_kld, max_kld)
+    min_max_loss = torch.quantile(all_recon_errors, 0.03), torch.quantile(all_recon_errors, 0.97), \
+        torch.quantile(all_kld_errors, 0.03), torch.quantile(all_kld_errors, 0.97)
     return mu_agg, var_agg, min_max_loss
 
 
