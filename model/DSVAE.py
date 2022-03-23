@@ -239,7 +239,7 @@ class DisentangledVAE(BaseModel):
                 nn.init.kaiming_normal_(m.weight)
 
     # If random sampling is true, reparametrization occurs else z_t is just set to the mean
-    def sample_z(self, batch_size: int, seq_len: int, random_sampling: bool = True):
+    def sample_z(self, batch_size: int, seq_len: int = None, random_sampling: bool = True):
         z_out = None  # This will ultimately store all z_s in the format [batch_size, frames, z_dim]
         z_means = None
         z_logvars = None
