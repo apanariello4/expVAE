@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -305,7 +305,7 @@ class DisentangledVAE(BaseModel):
         else:
             return mean
 
-    def encode_f(self, x, random_sampling: bool):
+    def encode_f(self, x, random_sampling: Optional[bool] = None):
         random_sampling = self.training if random_sampling is None else random_sampling
 
         lstm_out, _ = self.f_lstm(x)
