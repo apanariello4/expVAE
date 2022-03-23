@@ -20,17 +20,15 @@ def args() -> argparse.Namespace:
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--latent-dim', type=int, default=512)
-
     # KLD ALPHA
     parser.add_argument('--alpha-warmup', type=int, default=10)  # if 0 no warmup
     parser.add_argument('--alpha-min', type=float, default=0.0)
     parser.add_argument('--alpha-max', type=float, default=1.0)
-
+    parser.add_argument('--alpha-scheduler', type=str, default='step', choices=['warmup', 'cyclic'])
     # LR
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--lr-steps', type=int, default=3)
     parser.add_argument('--scheduler', type=str, default='step', choices=['step', 'cosine'])
-    parser.add_argument('--alpha-scheduler', type=str, default='step', choices=['warmup', 'cyclic'])
 
     parser.add_argument('--activation', type=str, default='relu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
