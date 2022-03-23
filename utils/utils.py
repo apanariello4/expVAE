@@ -80,7 +80,7 @@ def get_alpha_scheduler(args: argparse.Namespace) -> torch.Tensor:
     elif args.alpha_scheduler == 'cyclic':
         cycles = args.epochs // (args.alpha_warmup * 2)
         if cycles < 4:
-            Logger.warning(f'Cycles should be higher, cycles={cycles}')
+            print(f'Cycles should be higher, cycles={cycles}')
         alpha = torch.cat((alpha, torch.full((args.alpha_warmup,), fill_value=args.alpha_max)))
         alpha = alpha.repeat(args.epochs // (args.alpha_warmup * 2))
         if alpha.shape[0] < args.epochs:
