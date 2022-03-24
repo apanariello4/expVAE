@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import torch
 from torch import Tensor
+import torchvision
 
 
 def args() -> argparse.Namespace:
@@ -24,13 +25,13 @@ def args() -> argparse.Namespace:
     parser.add_argument('--alpha-warmup', type=int, default=10)  # if 0 no warmup
     parser.add_argument('--alpha-min', type=float, default=0.0)
     parser.add_argument('--alpha-max', type=float, default=1.0)
-    parser.add_argument('--alpha-scheduler', type=str, default='step', choices=['warmup', 'cyclic'])
+    parser.add_argument('--alpha-scheduler', type=str, default='warmup', choices=['warmup', 'cyclic'])
     # LR
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--lr-steps', type=int, default=3)
     parser.add_argument('--scheduler', type=str, default='step', choices=['step', 'cosine'])
 
-    parser.add_argument('--activation', type=str, default='relu',
+    parser.add_argument('--activation', type=str, default='elu',
                         choices=['relu', 'elu', 'silu', 'leakyrelu'])
     parser.add_argument('--recon-func', type=str, default='bce', choices=['mse', 'bce'])
     parser.add_argument('--model', type=str, default='conv3d', choices=['loco', 'conv3d', 'vrnn', 'bivrnn', 'dsvae'])
@@ -99,20 +100,27 @@ def deterministic_behavior(seed: int = 1) -> None:
 def apply_jet_color_map(img: np.ndarray) -> np.ndarray:
     """
     Apply jet color map to an image
+
+    img: numpy array of shape (T, H, W)
     """
-    img = img.mean(axis=0)
-    img = img - np.min(img)
-    img = img / np.max(img)
-    img = cv2.applyColorMap(np.uint8(255 * img), cv2.COLORMAP_JET)
-    return img
+    imgs = np.zeros(img.shape + (3,))
+    img -= img.min()
+    img /= img.max()
+    img = np.expand_dims(img, axis=-1)
+    for i in range(img.shape[0]):
+        imgs[i] = cv2.applyColorMap(np.uint8(255 * img[i]), cv2.COLORMAP_JET)
+    return imgs
 
 
 def save_cam(image: np.ndarray, filename: str,
-             gcam: np.ndarray, gcam_loss=None) -> None:
+             gcam: np.ndarray, reconstruction: np.ndarray, gcam_loss=None) -> None:
     image = np.stack(([image] * 3), axis=-1)
+    #reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
+    reconstruction = np.stack(([reconstruction] * 3), axis=-1)
 
     # latent space gcam
     gcam = apply_jet_color_map(gcam)
+    gcam_recon = np.asarray(gcam, dtype=np.float) + np.asarray(reconstruction, dtype=np.float)
     gcam = np.asarray(gcam, dtype=np.float) + np.asarray(image, dtype=np.float)
     gcam = 255 * gcam / np.max(gcam)
     gcam = np.uint8(gcam)
@@ -127,7 +135,14 @@ def save_cam(image: np.ndarray, filename: str,
         gcam_loss = np.uint8(gcam_loss)
         imgs = np.concatenate((imgs, gcam_loss), axis=1)
 
-    cv2.imwrite(filename, imgs[0])
+    reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
+    imgs = np.concatenate((imgs, reconstruction), axis=0)
+
+    gcam_recon = np.uint8(255 * gcam_recon / np.max(gcam_recon))
+    imgs = np.concatenate((imgs, gcam_recon), axis=0)
+    #imgs in [0, 255]
+    grid = torchvision.utils.make_grid(torch.from_numpy(imgs).transpose(-1, 1), nrow=4)
+    cv2.imwrite(filename, grid.transpose(0, -1).numpy())
 
 
 def get_project_root() -> Path:

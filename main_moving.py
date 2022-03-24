@@ -62,8 +62,8 @@ def main(args: argparse.Namespace):
         assert os.path.exists(args.resume)
         checkpoint = torch.load(args.resume)
         model.load_state_dict(checkpoint['state_dict'])
-        # optimizer.load_state_dict(checkpoint['optimizer'])
-        # resume_epoch = checkpoint['epoch']
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        resume_epoch = checkpoint['epoch']
         print(f"Loaded checkpoint {args.resume.split('/')[-1]}")
 
     now = datetime.datetime.now().strftime("%m%d%H%M")
@@ -90,8 +90,6 @@ def main(args: argparse.Namespace):
         test_loss = eval(model, device, test_loader, epoch, recon_func)
         roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
         print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g} m')
-        if args.test_only:
-            break
 
         if args.save_checkpoint and not args.test_only:
             if test_loss < best_test_loss or epoch == args.epochs - 1:
@@ -104,26 +102,24 @@ def main(args: argparse.Namespace):
                     args=args, time=now)
 
         if args.attention:
-            with torch.no_grad():
-                for i, (batch, _) in enumerate(test_loader):
-                    batch = batch.cuda()
-                    recon, mu, logvar = gradcam.forward(batch)
-                    # grid = make_grid(recon[0].cpu().transpose(0,1), nrow=8, normalize=True)
-                    # show(grid)
+            model.train()
+            for i, (batch, _) in enumerate(anom_loader):
+                batch = batch.cuda()
+                reconstructions, maps = model.attention_maps(batch)
+                raw_images = (batch * 255.0).squeeze().cpu().numpy()
+                reconstructions = (reconstructions * 255.0).squeeze().cpu().detach().numpy()
+                im_path = './results/'
+                if not os.path.exists(im_path):
+                    os.mkdir(im_path)
+                base_path = im_path
 
-                    maps = gradcam.get_attention_map(batch, recon, mu, logvar, target_layer='phi_x.2.downsample')
-                    raw_image = (batch * 255.0).squeeze().cpu().numpy()
-                    im_path = './results/'
-                    if not os.path.exists(im_path):
-                        os.mkdir(im_path)
-                    base_path = im_path + f'{epoch:03d}_{i:04d}'
+                save_cam(
+                    raw_images[0],
+                    base_path + f"att__anom_{epoch:3d}-{i:5d}.png",
+                    maps[0].squeeze().cpu().data.numpy(),
+                    reconstructions[0],
+                )
 
-                    save_cam(
-                        raw_image,
-                        base_path + f"att.png",
-                        maps.squeeze().cpu().data.numpy(),
-                        # loss_maps.squeeze().cpu().data.numpy()
-                    )
         with torch.no_grad():
             model.train()
             generated = model.sample()
@@ -135,6 +131,9 @@ def main(args: argparse.Namespace):
                 # 'mu_avg': mu_avg, 'var_avg': var_avg,
                 'img_from_noise': wandb.Image(generated, caption=f'Generated from noise ep {epoch}'),
             }, step=epoch)
+
+        if args.test_only:
+            break
 
 
 if __name__ == '__main__':

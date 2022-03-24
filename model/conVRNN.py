@@ -1,15 +1,18 @@
-import torch.nn as nn
-import torch
-from torch import Tensor
+from collections import OrderedDict
 import os
 import sys
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+
 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_path)
-from model.block2d import Decoder2DBlock, Encoder2DBlock
-from model.vae_loss import VRNNLoss
 from model.base_model import BaseModel
+from model.block2d import Decoder2DBlock, Encoder2DBlock
 from model.temporal_conv import TemporalConv1D, TemporalConv3D
+from model.vae_loss import VRNNLoss
 
 EPS = torch.finfo(torch.float).eps
 
@@ -125,16 +128,15 @@ class ConVRNN(BaseModel):
             x = x.reshape(t, b, -1).contiguous()
             return x
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor) -> Tensor:
 
         x = x.permute(2, 0, 1, 3, 4)  # t, b, ch, h, w
         phi_x = self.encode(x)  # t, b, h
-
         all_enc_mean, all_enc_std = [], []
         all_dec_mean, all_dec_std = [], []
         all_prior_mean, all_prior_std = [], []
-        kld_loss = 0
-        nll_loss = 0
+        all_z_t = []
+
         self.sample_dim = x.shape[-3:]
 
         x_recon = torch.zeros(x.shape).to(self._device)
@@ -167,10 +169,6 @@ class ConVRNN(BaseModel):
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
-            # computing losses
-            # kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-            # nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
-
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
             all_dec_mean.append(dec_mean_t)
@@ -189,6 +187,97 @@ class ConVRNN(BaseModel):
 
         x_recon = x_recon.permute(1, 2, 0, 3, 4)  # b, ch, t, h, w
         return x_recon, (all_enc_mean, all_enc_std), (all_prior_mean, all_prior_std)
+
+    def _set_hook_func(self) -> None:
+        def func_f(module, input, f_output):
+            self.outputs_forward[id(module)] = f_output
+
+        for module in self.named_modules():
+            module[1].register_forward_hook(func_f)
+
+    def _get_conv_outputs(self, outputs: Tensor,
+                          target_layer: Tensor) -> Tensor:
+        for i, (k, v) in enumerate(outputs.items()):
+            for module in self.named_modules():
+                if k == id(module[1]) and module[0] == target_layer:
+                    return v
+
+    @staticmethod
+    def normalize(tensor: Tensor) -> Tensor:
+        # torch.norm(tensor, dim=(2, 3), keepdim=True)
+        return tensor / torch.norm(tensor)
+
+    def _get_grad_weights(self, grad_z: Tensor) -> Tensor:
+        """Applies the GAP operation to the gradients to obtain weights alpha."""
+
+        alpha = self.normalize(grad_z)
+        alpha = F.avg_pool2d(grad_z, kernel_size=grad_z.size(-1))
+        return alpha
+
+    def attention_maps(self, x: Tensor) -> Tensor:
+        self.outputs_forward = OrderedDict()
+        self._set_hook_func()
+        batch, channels, time, height, width = x.shape
+        x = x.permute(2, 0, 1, 3, 4)  # t, b, ch, h, w
+
+        x_recon = torch.zeros(x.shape).to(self._device)
+        maps = torch.zeros_like(x_recon)
+        h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
+
+        for t in range(x.size(0)):
+
+            phi_x_t = self.phi_x(x[t])
+
+            if len(phi_x_t.shape) == 2:  # already flattened
+                phi_x_t = phi_x_t.view(1, batch, -1)  # (time, batch, h_dim)
+                phi_x_t = phi_x_t.permute(1, 2, 0)  # (b, h_dim, t) # for 1d conv
+                phi_x_t = self.temporal_conv(phi_x_t)
+                phi_x_t = phi_x_t.permute(2, 0, 1)  # (time, batch, h_dim)
+            elif len(phi_x_t.shape) == 4:  # not flattened
+                _, ch, h, w = phi_x_t.size()
+                phi_x_t = phi_x_t.view(1, batch, ch, h, w)
+                phi_x_t = phi_x_t.permute(1, 2, 0, 3, 4)  # (b, ch, time, h, w) for 3d conv
+                phi_x_t = self.temporal_conv(phi_x_t)
+                phi_x_t = phi_x_t.permute(2, 0, 1, 3, 4)  # (time, batch, ch, h, w)
+                phi_x_t = phi_x_t.reshape(1, batch, -1).contiguous()
+            phi_x_t = phi_x_t.squeeze()
+
+            conv_outputs = self._get_conv_outputs(self.outputs_forward, target_layer='phi_x.2.conv2')
+            # encoder
+            enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
+            enc_mean_t = self.enc_mean(enc_t)
+            enc_std_t = self.enc_std(enc_t)
+
+            # sampling and reparameterization
+            z_t = self.reparameterize(enc_mean_t, enc_std_t)
+            phi_z_t = self.phi_z(z_t)
+
+            # decoder
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
+            dec_mean_t = self.dec_mean(dec_t)
+            # dec_std_t = self.dec_std(dec_t)
+
+            # recurrence
+            _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
+
+            x_recon[t] = dec_mean_t
+
+            grad_z = torch.autograd.grad(
+                outputs=z_t, inputs=conv_outputs,
+                grad_outputs=torch.ones(z_t.size()).to(self._device), retain_graph=True,
+                only_inputs=True)[0]
+
+            alpha = self._get_grad_weights(grad_z)
+
+            maps_t = F.relu(torch.sum((alpha * conv_outputs), dim=1)).unsqueeze(1)
+            maps_t = F.interpolate(
+                maps_t,
+                size=(height, width),
+                mode='bilinear',
+                align_corners=False)
+            maps[t] = maps_t
+
+        return x_recon.transpose(0, 1), maps.transpose(0, 1)
 
     @staticmethod
     def get_loss_function(**kwargs) -> nn.Module:
