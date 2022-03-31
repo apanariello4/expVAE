@@ -1,21 +1,23 @@
 import torch.nn as nn
+from torch import Tensor
 
 
 class Encoder2DBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride, activation: nn.Module = nn.ReLU(inplace=True)):
+    def __init__(self, in_channels: int, out_channels: int, stride: int,
+                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = True):
         super(Encoder2DBlock, self).__init__()
         kernel_size = 3
         padding = 1
         self.activation = activation
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
         self.bn1 = nn.BatchNorm2d(out_channels)
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, stride=1, padding=1, bias=bias)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
         self.downsample = nn.Conv2d(in_channels, out_channels, 1, stride, 0, 1, 1)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         residual = x
 
         x = self.conv1(x)
@@ -29,24 +31,25 @@ class Encoder2DBlock(nn.Module):
 
 
 class Decoder2DBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, upscale_factor: int = 2, activation: nn.Module = nn.ReLU(inplace=True)):
+    def __init__(self, in_channels: int, out_channels: int, upscale_factor: int = 2,
+                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = True):
         super(Decoder2DBlock, self).__init__()
 
         self.activation = activation
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
         self.ups1 = nn.Upsample(scale_factor=upscale_factor, mode='bilinear', align_corners=False)
         self.bn1 = nn.BatchNorm2d(out_channels)
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
         self.ups_res = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=bias),
             nn.Upsample(scale_factor=upscale_factor, mode='bilinear', align_corners=False),
             nn.BatchNorm2d(out_channels)
         )
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         residual = x
 
         x = self.conv1(x)

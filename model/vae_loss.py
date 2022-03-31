@@ -102,7 +102,15 @@ def kld_gauss(mean_1: Tensor, std_1: Tensor,
 
 
 def nll_bernoulli(theta: Tensor, x: Tensor, frame_level: bool = False) -> Tensor:
-    """Using log-likelihood to compute NLL"""
+    """Using log-likelihood to compute NLL.
+
+        If frame_level is True, then the loss is computed for each frame,
+        and the shape should be (batch_size, seq_len, ch*h*w)
+    """
+    assert theta.dim() == x.dim(), 'theta and x must have the same dimension'
+    if frame_level:
+        assert theta.dim() == 3, 'theta and x must be of dimension 3 if frame_level is True'
+
     nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
 
     return - torch.sum(nll, dim=-1) if frame_level else - torch.sum(nll)

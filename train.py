@@ -39,6 +39,7 @@ def aggregate(model, train_loader: DataLoader,
 
             counter += len(data)
             pbar.update()
+        pbar.close()
 
     mu_agg /= counter
 
@@ -80,3 +81,17 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
                            'alpha_kld': alpha.item(),
                            'lr': optimizer.param_groups[0]['lr']}, step=epoch)
         scheduler.step()
+        pbar.close()
+
+
+if __name__ == '__main__':
+    from model.conVRNN import ConVRNN
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    recon_func = 'bce'
+    model = ConVRNN(512, 512, 'elu').to(device)
+    from dataset.MovingMNIST import MovingMNIST
+    train_moving = MovingMNIST(train=True)
+    train_loader = DataLoader(train_moving, batch_size=16, shuffle=True, num_workers=4)
+
+    aggregate(model, train_loader, device, recon_func)

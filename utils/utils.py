@@ -1,15 +1,15 @@
 import argparse
-from logging import Logger
 import os
 import random
 from pathlib import Path
-from typing import Tuple
 
 import cv2
+import einops
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch import Tensor
 import torchvision
+from torch import Tensor
 
 
 def args() -> argparse.Namespace:
@@ -97,9 +97,10 @@ def deterministic_behavior(seed: int = 1) -> None:
     random.seed(seed)
 
 
-def apply_jet_color_map(img: np.ndarray) -> np.ndarray:
+def apply_jet_color_map_to_seq(img: np.ndarray, min, max) -> np.ndarray:
     """
-    Apply jet color map to an image
+    Apply jet color map to a sequence.
+    The map is normalized sequence level to [0, 1].
 
     img: numpy array of shape (T, H, W)
     """
@@ -108,7 +109,8 @@ def apply_jet_color_map(img: np.ndarray) -> np.ndarray:
     img /= img.max()
     img = np.expand_dims(img, axis=-1)
     for i in range(img.shape[0]):
-        imgs[i] = cv2.applyColorMap(np.uint8(255 * img[i]), cv2.COLORMAP_JET)
+        if img[i].max() > 0:
+            imgs[i] = cv2.applyColorMap(np.uint8(255 * img[i]), cv2.COLORMAP_JET)
     return imgs
 
 
@@ -117,31 +119,47 @@ def save_cam(image: np.ndarray, filename: str,
     image = np.stack(([image] * 3), axis=-1)
     #reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
     reconstruction = np.stack(([reconstruction] * 3), axis=-1)
+    batch_min = np.min(gcam)
+    batch_max = np.max(gcam)
+    if gcam.ndim == 4:
+        jet_color = np.zeros(gcam.shape + (3,))
+        for i in range(gcam.shape[0]):
+            jet_color[i] = apply_jet_color_map_to_seq(gcam[i], batch_min, batch_max)
+        gcam = jet_color
+    else:
+        gcam = apply_jet_color_map_to_seq(gcam)
 
-    # latent space gcam
-    gcam = apply_jet_color_map(gcam)
-    gcam_recon = np.asarray(gcam, dtype=np.float) + np.asarray(reconstruction, dtype=np.float)
+    # Apply gcam on top of original image
+
     gcam = np.asarray(gcam, dtype=np.float) + np.asarray(image, dtype=np.float)
     gcam = 255 * gcam / np.max(gcam)
     gcam = np.uint8(gcam)
+
+    # Apply gcam on top of reconstruction
+    gcam_recon = np.asarray(gcam, dtype=np.float) + np.asarray(reconstruction, dtype=np.float)
+    reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
+    gcam_recon = np.uint8(255 * gcam_recon / np.max(gcam_recon))
+
+    if gcam.ndim == 5:
+        gcam = einops.rearrange(gcam, 't seq h w c-> (t seq) h w c')
+        gcam_recon = einops.rearrange(gcam_recon, 't seq h w c-> (t seq) h w c')
+
     imgs = np.concatenate((image, gcam), axis=0)
 
     # loss gcam
     if gcam_loss:
-        gcam_loss = apply_jet_color_map(gcam_loss)
+        gcam_loss = apply_jet_color_map_to_seq(gcam_loss)
         gcam_loss = np.asarray(gcam_loss, dtype=np.float) + \
             np.asarray(image, dtype=np.float)
         gcam_loss = 255 * gcam_loss / np.max(gcam_loss)
         gcam_loss = np.uint8(gcam_loss)
         imgs = np.concatenate((imgs, gcam_loss), axis=1)
 
-    reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
-    imgs = np.concatenate((imgs, reconstruction), axis=0)
+    # imgs = np.concatenate((imgs, reconstruction), axis=0)
 
-    gcam_recon = np.uint8(255 * gcam_recon / np.max(gcam_recon))
-    imgs = np.concatenate((imgs, gcam_recon), axis=0)
+    # imgs = np.concatenate((imgs, gcam_recon), axis=0)
     #imgs in [0, 255]
-    grid = torchvision.utils.make_grid(torch.from_numpy(imgs).transpose(-1, 1), nrow=4)
+    grid = torchvision.utils.make_grid(torch.from_numpy(imgs).transpose(-1, 1), nrow=image.shape[0])
     cv2.imwrite(filename, grid.transpose(0, -1).numpy())
 
 

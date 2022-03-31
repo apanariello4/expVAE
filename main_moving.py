@@ -12,15 +12,15 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, StepLR
 from torchvision.utils import save_image
 
 import wandb
+from attention import attention
 from model.Bi_conVRNN import BidirectionalConVRNN
 from model.conv3dVAE import Conv3dVAE
 from model.conVRNN import ConVRNN
 from model.DSVAE import DisentangledVAE
-from model.gradCAM import GradCAM
 from model.LoCOVAE import LoCOVAE
 from train import aggregate, train
 from utils.dataset_loaders import load_moving_mnist
-from utils.utils import args, deterministic_behavior, get_alpha_scheduler, save_checkpoint, save_cam
+from utils.utils import args, deterministic_behavior, get_alpha_scheduler, save_checkpoint
 
 
 def main(args: argparse.Namespace):
@@ -44,7 +44,7 @@ def main(args: argparse.Namespace):
     elif args.model == 'dsvae':
         model = architecture()
 
-    print(f'Model: {model.name}, num params: {model.count_parameters:,}')
+    print(f'\nModel: {model.name}, num params: {model.count_parameters:,}, activation: {args.activation}')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
@@ -64,7 +64,7 @@ def main(args: argparse.Namespace):
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         resume_epoch = checkpoint['epoch']
-        print(f"Loaded checkpoint {args.resume.split('/')[-1]}")
+        print(f"Loaded checkpoint {args.resume.split('/')[-1]} (epoch {resume_epoch})")
 
     now = datetime.datetime.now().strftime("%m%d%H%M")
     if args.log:
@@ -73,8 +73,6 @@ def main(args: argparse.Namespace):
         wandb.watch(model)
 
     recon_func = args.recon_func
-    if args.attention:
-        gradcam = GradCAM(model)
 
     alpha = get_alpha_scheduler(args)
 
@@ -87,9 +85,9 @@ def main(args: argparse.Namespace):
             if args.model not in ['bivrnn', 'dsvae']:
                 _, _, min_max_loss = aggregate(model, train_loader, device, recon_func)
 
-        test_loss = eval(model, device, test_loader, epoch, recon_func)
-        roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
-        print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g} m')
+        # test_loss = eval(model, device, test_loader, epoch, recon_func)
+        # roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
+        # print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g}m')
 
         if args.save_checkpoint and not args.test_only:
             if test_loss < best_test_loss or epoch == args.epochs - 1:
@@ -102,23 +100,7 @@ def main(args: argparse.Namespace):
                     args=args, time=now)
 
         if args.attention:
-            model.train()
-            for i, (batch, _) in enumerate(anom_loader):
-                batch = batch.cuda()
-                reconstructions, maps = model.attention_maps(batch)
-                raw_images = (batch * 255.0).squeeze().cpu().numpy()
-                reconstructions = (reconstructions * 255.0).squeeze().cpu().detach().numpy()
-                im_path = './results/'
-                if not os.path.exists(im_path):
-                    os.mkdir(im_path)
-                base_path = im_path
-
-                save_cam(
-                    raw_images[0],
-                    base_path + f"att__anom_{epoch:3d}-{i:5d}.png",
-                    maps[0].squeeze().cpu().data.numpy(),
-                    reconstructions[0],
-                )
+            attention(model, anom_loader, epoch)
 
         with torch.no_grad():
             model.train()

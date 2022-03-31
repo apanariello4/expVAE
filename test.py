@@ -7,6 +7,8 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from dataset.MovingMNIST import MovingMNIST
+from model.conVRNN import ConVRNN
 
 from model.vae_loss import vae_loss, vae_loss_normalized
 from sklearn.metrics import roc_auc_score, average_precision_score
@@ -59,7 +61,7 @@ def eval(model, device: torch.device, test_loader: DataLoader, epoch: int, recon
             total_kld_err += kld_err.item()
             pbar.set_postfix(loss=test_loss / num_samples, recon_err=total_recon_err / num_samples, kld_err=total_kld_err / num_samples)
             pbar.update()
-
+        pbar.close()
         if isinstance(x_recon, list):
             x_recon = x_recon[0]
         imgs = gen_one_recon_img(data[0], x_recon[0])
@@ -100,6 +102,7 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
                     kld_err.view(-1).cpu().data.numpy().tolist(),)
             )
             pbar.update()
+        pbar.close()
 
         labels, anomaly_score_norm, recon_err_norm, kld_err_norm = zip(*labels_scores)
 
@@ -124,4 +127,33 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
 
 
 if __name__ == '__main__':
-    pass
+    import cv2
+    model = ConVRNN(512, 512, 'elu').cuda()
+    checkpoint = torch.load('/home/nello/expVAE/checkpoints/gradcam__conVRNN_03251226_chkp.pth')
+    model.load_state_dict(checkpoint['state_dict'])
+    epoch = checkpoint['epoch']
+    anom = MovingMNIST(train=False, anom=True)
+    anom_loader = DataLoader(anom, batch_size=64, shuffle=False, num_workers=4)
+
+    with torch.no_grad(), tqdm(total=len(anom_loader), desc='Eval anomalous') as pbar:
+        for i, (data, target) in enumerate(anom_loader, start=1):
+            data = data.cuda()
+            target = target.cuda()
+
+            recon_batch, *distribution = model(data)
+            for seq in range(data.shape[0]):
+                for img in range(data.shape[2]):
+                    if target[seq, img] == 1:
+                        data[seq, :, img, 0, :] = 1
+                        data[seq, :, img, -1, :] = 1
+                        data[seq, :, img, :, 0] = 1
+                        data[seq, :, img, :, -1] = 1
+
+                diff = cv2.subtract(data[seq, :, :, :, :].cpu().numpy(), recon_batch[seq, :, :, :, :].cpu().numpy())
+                diff[diff < 0.5] = 0
+
+                imgs = gen_one_recon_img(data[seq], recon_batch[seq])
+                imgs = torch.cat([imgs, torch.Tensor(diff).transpose(0, 1).cuda()], dim=0)
+
+                save_image(imgs, f'./img_slides/ep-{epoch}_{(seq+1)*i}_recon_moving.png', nrow=20)
+            pbar.update()

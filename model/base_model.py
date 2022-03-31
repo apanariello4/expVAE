@@ -6,10 +6,12 @@ from torch import Tensor
 class BaseModel(nn.Module):
     @property
     def count_parameters(self) -> int:
+        """Returns the number of trainable parameters in the model."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     @property
     def _device(self) -> torch.device:
+        """Returns the device of the model."""
         return next(self.parameters()).device
 
     @staticmethod

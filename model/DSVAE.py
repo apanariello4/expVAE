@@ -44,40 +44,6 @@ def loss_fn(recon_seq: Tensor, original_seq: Tensor,
 
     return (mse + alpha * (kld_f + kld_z)), mse, kld_f + kld_z
 
-# A block consisting of convolution, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
-
-
-class ConvUnit(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=nn.LeakyReLU(0.2)):
-        super(ConvUnit, self).__init__()
-        if batchnorm is True:
-            self.model = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel, stride, padding),
-                nn.BatchNorm2d(out_channels), nonlinearity)
-        else:
-            self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel, stride, padding), nonlinearity)
-
-    def forward(self, x):
-        return self.model(x)
-
-# A block consisting of a transposed convolution, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
-
-
-class ConvUnitTranspose(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, out_padding=0, batchnorm=True, nonlinearity=nn.LeakyReLU(0.2)):
-        super(ConvUnitTranspose, self).__init__()
-        if batchnorm is True:
-            self.model = nn.Sequential(
-                nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding),
-                nn.BatchNorm2d(out_channels), nonlinearity)
-        else:
-            self.model = nn.Sequential(nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding), nonlinearity)
-
-    def forward(self, x):
-        return self.model(x)
-
-# A block consisting of an affine layer, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
-
 
 class LinearUnit(nn.Module):
     def __init__(self, in_features, out_features, batchnorm=True, nonlinearity=nn.LeakyReLU(0.2)):
