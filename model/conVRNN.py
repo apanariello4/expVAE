@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 import numpy as np
+from einops import rearrange
 
 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_path)
@@ -136,14 +137,17 @@ class ConVRNN(BaseModel):
             return x
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tuple[Tensor, Tensor], Tuple[Tensor, Tensor]]:
+        batch, ch, seq_len, height, width = x.shape
 
         x = x.permute(2, 0, 1, 3, 4)  # t, b, ch, h, w
         phi_x = self.encode(x)  # t, b, h
-        all_enc_mean, all_enc_std = [], []
-        all_dec_mean, all_dec_std = [], []
-        all_prior_mean, all_prior_std = [], []
 
-        x_recon = torch.zeros(x.shape).to(self._device)
+        all_enc_mean = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
+        all_enc_std = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
+        all_prior_mean = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
+        all_prior_std = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
+
+        x_recon = torch.zeros_like(x)
         h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
 
         for t in range(x.size(0)):
@@ -172,23 +176,16 @@ class ConVRNN(BaseModel):
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
-            all_enc_std.append(enc_std_t)
-            all_enc_mean.append(enc_mean_t)
-            all_dec_mean.append(dec_mean_t)
-            # all_dec_std.append(dec_std_t)
-            all_prior_mean.append(prior_mean_t)
-            all_prior_std.append(prior_std_t)
+            all_enc_mean[t] = enc_mean_t
+            all_enc_std[t] = enc_std_t
+
+            all_prior_mean[t] = prior_mean_t
+            all_prior_std[t] = prior_std_t
 
             x_recon[t] = dec_mean_t
 
-        all_enc_mean = torch.stack(all_enc_mean, dim=0)
-        all_enc_std = torch.stack(all_enc_std, dim=0)
-        all_dec_mean = torch.stack(all_dec_mean, dim=0)
-        # all_dec_std = torch.stack(all_dec_std, dim=0)
-        all_prior_mean = torch.stack(all_prior_mean, dim=0)
-        all_prior_std = torch.stack(all_prior_std, dim=0)
-
         x_recon = x_recon.permute(1, 2, 0, 3, 4)  # b, ch, t, h, w
+
         return x_recon, (all_enc_mean, all_enc_std), (all_prior_mean, all_prior_std)
 
     def _set_hook_func(self) -> None:
@@ -224,10 +221,10 @@ class ConVRNN(BaseModel):
         x = x.permute(2, 0, 1, 3, 4)  # t, b, ch, h, w
 
         x_recon = torch.zeros_like(x)
-        maps = torch.zeros((seq, *x_recon.shape))
+        maps = torch.zeros((2 * seq, *x_recon.shape))
         h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
 
-        old_conv_outputs = []
+        old_conv_outputs, old_conv_outputs_prior = [], []
 
         for t in range(x.size(0)):
 
@@ -247,6 +244,9 @@ class ConVRNN(BaseModel):
             prior_mean_t = self.prior_mean(prior_t)
             prior_std_t = self.prior_std(prior_t)
 
+            z_t_prior = self.reparameterize(prior_mean_t, prior_std_t)
+            phi_z_t_prior = self.phi_z(z_t_prior)
+
             # sampling and reparameterization
             z_t = self.reparameterize(enc_mean_t, enc_std_t)
             phi_z_t = self.phi_z(z_t)
@@ -262,7 +262,7 @@ class ConVRNN(BaseModel):
             x_recon[t] = dec_mean_t.detach()
             # mse = F.mse_loss(dec_mean_t, x[t], reduction='none')
 
-            # kld = kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
+            # # kld = kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
             # mask = torch.stack([self.mask.reshape((ch, height, width))] * batch).to(self._device)
 
             for c, conv in enumerate(old_conv_outputs):
@@ -272,7 +272,17 @@ class ConVRNN(BaseModel):
 
                 maps[c, t] = self.get_attention_map(height, width, conv, grad, gradcam_pp=gradcam_pp)
 
-        return x_recon.permute(1, 2, 0, 3, 4), maps.permute(2, 1, 3, 0, 4, 5)
+                if c == 0:
+                    continue
+                grad = torch.autograd.grad(
+                    outputs=z_t_prior, inputs=old_conv_outputs[c - 1],
+                    grad_outputs=torch.ones_like(z_t_prior), retain_graph=True, only_inputs=True)[0]
+
+                maps[c + seq - 1, t] = self.get_attention_map(height, width, conv, grad, gradcam_pp=gradcam_pp)
+
+        x_recon = rearrange(x_recon, 't b ch h w -> b ch t h w')
+        maps = rearrange(maps, 'conv t b ch h w -> b conv ch t h w')
+        return x_recon, maps
 
     def get_attention_map(self, height, width, conv_outputs, grad_z, gradcam_pp: bool = False):
 

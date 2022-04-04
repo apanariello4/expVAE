@@ -18,12 +18,11 @@ def attention(model: BaseModel, data_loader: DataLoader, epoch: int, save_maps: 
     att_scores = []
     targets = []
     recon_scores = []
+    #err_abs = torch.zeros(5000, 1, 20, 64, 64)
 
-    err_abs = torch.zeros(5000, 1, 20, 64, 64)
-
-    with tqdm(total=len(data_loader), desc=f'Generating Attention Maps for epoch {epoch}') as pbar:
+    with tqdm(total=len(data_loader), desc=f'Gen. attention for ep. {epoch}') as pbar:
         for it, (data, target) in enumerate(data_loader):
-            batch, ch, seq, h, w = data.shape
+            batch, _, seq, _, _ = data.shape
             data = data.to(model._device)
             reconstructions, maps = model.attention_maps(data, gradcam_pp=True)
             raw_images = (data * 255.0).squeeze().cpu().numpy()
@@ -31,10 +30,11 @@ def attention(model: BaseModel, data_loader: DataLoader, epoch: int, save_maps: 
                                 data.reshape(batch, seq, -1),
                                 frame_level=True)
 
-            err_abs[it:it + batch] = (reconstructions - data).detach()
+            #err_abs[it:it + batch] = (reconstructions - data).detach()
             if target is not None:
                 raw_images = mark_anomalous_frame(target, raw_images)
                 targets += target.view(-1).data.tolist()
+                # to fix when we have a (seq * seq) / 2 maps
                 att_scores += maps.squeeze().reshape(batch, seq, -1).mean(-1).view(-1).cpu().data.tolist()
                 recon_scores += nll.view(-1).cpu().data.tolist()
             reconstructions = (reconstructions * 255.0).squeeze().cpu().detach().numpy()
@@ -44,6 +44,7 @@ def attention(model: BaseModel, data_loader: DataLoader, epoch: int, save_maps: 
             base_path = im_path
             if it == 0 and save_maps:
                 pbar.set_postfix_str(f'Saving in {base_path}')
+                # maps have the shape (b conv ch t h w), data has the shape (b ch t h w)
                 for i in range(data.shape[0]):
                     save_cam(
                         raw_images[i],
@@ -51,9 +52,9 @@ def attention(model: BaseModel, data_loader: DataLoader, epoch: int, save_maps: 
                         maps[i].squeeze().cpu().data.numpy(),
                         reconstructions[i],
                     )
-            # breakpoint()
             pbar.update()
         pbar.close()
+        #np.save('./err_abs.npy', err_abs)
 
     if targets:
         auc = roc_auc_score(targets, att_scores)

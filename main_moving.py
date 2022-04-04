@@ -44,7 +44,7 @@ def main(args: argparse.Namespace):
     elif args.model == 'dsvae':
         model = architecture()
 
-    print(f'\nModel: {model.name}, num params: {model.count_parameters:,}, activation: {args.activation}')
+    print(f'\nModel: {model.name}, num params: {model.count_parameters:,}, activation: {args.activation}\n')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
@@ -64,7 +64,7 @@ def main(args: argparse.Namespace):
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         resume_epoch = checkpoint['epoch']
-        print(f"Loaded checkpoint {args.resume.split('/')[-1]} (epoch {resume_epoch})")
+        print(f"Loaded checkpoint {args.resume.split('/')[-1]} (epoch {resume_epoch})\n")
 
     now = datetime.datetime.now().strftime("%m%d%H%M")
     if args.log:
