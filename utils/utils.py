@@ -4,11 +4,11 @@ import random
 from pathlib import Path
 
 import cv2
-import einops
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchvision
+from einops import rearrange, repeat
 from torch import Tensor
 
 
@@ -97,7 +97,7 @@ def deterministic_behavior(seed: int = 1) -> None:
     random.seed(seed)
 
 
-def apply_jet_color_map_to_seq(img: np.ndarray, min, max) -> np.ndarray:
+def apply_jet_cmap_to_seq(img: np.ndarray) -> np.ndarray:
     """
     Apply jet color map to a sequence.
     The map is normalized sequence level to [0, 1].
@@ -106,61 +106,55 @@ def apply_jet_color_map_to_seq(img: np.ndarray, min, max) -> np.ndarray:
     """
     imgs = np.zeros(img.shape + (3,))
     img -= img.min()
-    img /= img.max()
-    img = np.expand_dims(img, axis=-1)
-    for i in range(img.shape[0]):
-        if img[i].max() > 0:
-            imgs[i] = cv2.applyColorMap(np.uint8(255 * img[i]), cv2.COLORMAP_JET)
+    img /= (img.max() + np.finfo(float).eps)
+    img = rearrange(img, 't h w -> t h w 1')
+    for t in range(img.shape[0]):
+        if img[t].max() > 0:
+            imgs[t] = cv2.applyColorMap(np.uint8(255 * img[t]), cv2.COLORMAP_JET)
     return imgs
 
 
 def save_cam(image: np.ndarray, filename: str,
              gcam: np.ndarray, reconstruction: np.ndarray, gcam_loss=None) -> None:
-    image = np.stack(([image] * 3), axis=-1)
-    #reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
-    reconstruction = np.stack(([reconstruction] * 3), axis=-1)
-    batch_min = np.min(gcam)
-    batch_max = np.max(gcam)
+    """Image (t h w) is the original image.
+       gcam is the attention map, and can have shape (conv t h w) or (t h w).
+
+       There are no channels since we are working on grayscale images.
+    """
+    image = repeat(image, 't h w -> t h w 3')
+    reconstruction = repeat(reconstruction, 't h w -> t h w 3')
+
     if gcam.ndim == 4:
+        # in this case we have also the conv dim
         jet_color = np.zeros(gcam.shape + (3,))
         for i in range(gcam.shape[0]):
-            jet_color[i] = apply_jet_color_map_to_seq(gcam[i], batch_min, batch_max)
+            jet_color[i] = apply_jet_cmap_to_seq(gcam[i])
         gcam = jet_color
     else:
-        gcam = apply_jet_color_map_to_seq(gcam)
+        gcam = apply_jet_cmap_to_seq(gcam)
 
-    # Apply gcam on top of original image
-
-    gcam = np.asarray(gcam, dtype=np.float) + np.asarray(image, dtype=np.float)
+    gcam = gcam + repeat(image, 't h w c -> (2 t) 1 h w c')
     gcam = 255 * gcam / np.max(gcam)
     gcam = np.uint8(gcam)
 
-    # Apply gcam on top of reconstruction
-    gcam_recon = np.asarray(gcam, dtype=np.float) + np.asarray(reconstruction, dtype=np.float)
-    reconstruction = np.uint8(255 * reconstruction / np.max(reconstruction))
-    gcam_recon = np.uint8(255 * gcam_recon / np.max(gcam_recon))
-
-    if gcam.ndim == 5:
-        gcam = einops.rearrange(gcam, 't seq h w c-> (t seq) h w c')
-        gcam_recon = einops.rearrange(gcam_recon, 't seq h w c-> (t seq) h w c')
-
-    imgs = np.concatenate((image, gcam), axis=0)
+    # all frames on axis 0
+    imgs = np.concatenate(gcam, axis=0)
 
     # loss gcam
     if gcam_loss:
-        gcam_loss = apply_jet_color_map_to_seq(gcam_loss)
+        gcam_loss = apply_jet_cmap_to_seq(gcam_loss)
         gcam_loss = np.asarray(gcam_loss, dtype=np.float) + \
             np.asarray(image, dtype=np.float)
         gcam_loss = 255 * gcam_loss / np.max(gcam_loss)
         gcam_loss = np.uint8(gcam_loss)
         imgs = np.concatenate((imgs, gcam_loss), axis=1)
 
-    # imgs = np.concatenate((imgs, reconstruction), axis=0)
+    # imgs is in [0, 255], we move to torch to apply make_grid, but it has to be (... c h w)
+    imgs = rearrange(torch.from_numpy(imgs), 'frames h w c -> frames c h w')
+    grid = torchvision.utils.make_grid(imgs, nrow=image.shape[0])
 
-    # imgs = np.concatenate((imgs, gcam_recon), axis=0)
-    #imgs in [0, 255]
-    grid = torchvision.utils.make_grid(torch.from_numpy(imgs).transpose(-1, 1), nrow=image.shape[0])
-    cv2.imwrite(filename, grid.transpose(0, -1).numpy())
+    grid = rearrange(grid, 'c h w -> h w c').numpy()
+    cv2.imwrite(filename, grid)
 
 
 def get_project_root() -> Path:
