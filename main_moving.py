@@ -3,6 +3,7 @@ import argparse
 import datetime
 import os
 import time
+from main_mil import main_mil
 from test import eval, eval_anom
 
 import torch
@@ -21,32 +22,51 @@ from model.LoCOVAE import LoCOVAE
 from train import aggregate, train
 from utils.dataset_loaders import load_moving_mnist
 from utils.utils import args, deterministic_behavior, get_alpha_scheduler, save_checkpoint
+import torchvision
+from model.r2p1d import SmallResNet, get_model, generate_model
+from main_resnet import main_resnet
+from model.semisup_conVRNN import SemiSupConVRNN
 
 
 def main(args: argparse.Namespace):
-
-    train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
     architecture = {'loco': LoCOVAE,
                     'conv3d': Conv3dVAE,
                     'vrnn': ConVRNN,
                     'bivrnn': BidirectionalConVRNN,
-                    'dsvae': DisentangledVAE}[args.model]
+                    'dsvae': DisentangledVAE,
+                    'resnet': generate_model,
+                    'mil': SemiSupConVRNN}[args.model]
 
+    print('Loading model...')
     if args.model in ['loco', 'conv3d']:
         model = architecture(latent_dim=args.latent_dim, activation=args.activation)
         if args.recon_func == 'bce':
             model.decoder.add_module("sigmoid", nn.Sigmoid())
 
-    elif args.model in ['vrnn', 'bivrnn']:
+    elif args.model in ['vrnn', 'bivrnn', 'mil']:
         model = architecture(h_dim=512, latent_dim=args.latent_dim, activation=args.activation)
+        if args.model == 'mil':
+            main_mil(model, args)
 
     elif args.model == 'dsvae':
         model = architecture()
 
+    elif args.model == 'resnet':
+        model = SmallResNet()  # architecture(model_depth=10, n_input_channels=3, n_classes=2)
+        # model = torchvision.models.video.r2plus1d_18(pretrained=True, num_classes=400, progress=True)
+        # model.fc = nn.Linear(512, 2)
+        # model.name = 'R2P1D-18'
+        num_params = sum(p.numel() for p in model.parameters())
+        num_params_learn = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f'Params: Total {num_params:,}, learnable {num_params_learn:,}')
+        main_resnet(model, args)
+
     print(f'\nModel: {model.name}, num params: {model.count_parameters:,}, activation: {args.activation}\n')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
+
+    train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
     optimizer = Adam(model.parameters(), lr=args.lr)
     if args.scheduler == 'step':
@@ -85,9 +105,9 @@ def main(args: argparse.Namespace):
             if args.model not in ['bivrnn', 'dsvae']:
                 _, _, min_max_loss = aggregate(model, train_loader, device, recon_func)
 
-        # test_loss = eval(model, device, test_loader, epoch, recon_func)
-        # roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
-        # print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g}m')
+        test_loss = eval(model, device, test_loader, epoch, recon_func)
+        roc_auc, ap = eval_anom(model, device, anom_loader, epoch, min_max_loss, recon_func)
+        print(f'Epoch {epoch} val_loss: {test_loss:.4g} \tROC-AUC: {roc_auc:.4g} AP: {ap:.4g}\tEpoch time {(time.time() - t0)/60:.4g}m')
 
         if args.save_checkpoint and not args.test_only:
             if test_loss < best_test_loss or epoch == args.epochs - 1:

@@ -478,11 +478,11 @@ if __name__ == '__main__':
                 num_anoms_per_frame=1,
                 num_frames=20,
                 num_sequences=coarseness,
-                dataset='test',
+                dataset='training',
                 path_data='/home/nello/expVAE/dataset/data.npy',
                 path_labels='/home/nello/expVAE/dataset/labels.npy',
                 path_tSNE='/home/nello/expVAE/dataset/tsne.npy',
-                dest=f'/home/nello/expVAE/dataset/npz/anommnist_anomal-{i}')
+                dest=f'/home/nello/expVAE/dataset/npz/anommnist_anomal_train-{i}')
 
             gen.generate_ano_mnist()
 
@@ -490,7 +490,7 @@ if __name__ == '__main__':
             from matplotlib import pyplot as plt
 
             dat = np.load(
-                f'/home/nello/expVAE/dataset/npz/anommnist_anomal-{i}.npz')['anommnist']
+                f'/home/nello/expVAE/dataset/npz/anommnist_anomal_train-{i}.npz')['anommnist']
             seq = random.randint(0, dat.shape[0] - 1)
             for s in range(dat.shape[1]):
                 plt.imshow(dat[seq, s, 0, :, :])

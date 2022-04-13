@@ -92,3 +92,37 @@ def load_moving_mnist(args: argparse.Namespace) -> Tuple[DataLoader, DataLoader]
         anom, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
     return train_loader, test_loader, anom_loader
+
+
+def load_moving_mnist_resnet(args: argparse.Namespace) -> Tuple[DataLoader, DataLoader]:
+
+    from dataset.MovingMNIST import MovingMNISTResNet
+
+    # data_path = Path(args.dataset_path) / 'MovingMNIST'
+
+    train = MovingMNISTResNet(train=True)
+    test = MovingMNISTResNet(train=False)
+
+    train_loader = DataLoader(
+        train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    test_loader = DataLoader(
+        test, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+
+    return train_loader, test_loader
+
+
+def load_moving_mnist_mil(args: argparse.Namespace) -> Tuple[DataLoader, DataLoader]:
+
+    from dataset.MovingMNIST import MovingMNISTMIL
+
+    # data_path = Path(args.dataset_path) / 'MovingMNIST'
+
+    train = MovingMNISTMIL(train=True)
+    test = MovingMNISTMIL(train=False)
+
+    train_loader = DataLoader(
+        train, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    test_loader = DataLoader(
+        test, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+
+    return train_loader, test_loader

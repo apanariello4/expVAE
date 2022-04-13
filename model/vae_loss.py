@@ -3,8 +3,7 @@ import torch
 from torch.nn import functional as F
 from torch import Tensor
 import torch.nn as nn
-import math
-import wandb
+from einops import rearrange
 
 EPS = torch.finfo(torch.float).eps
 
@@ -101,19 +100,30 @@ def kld_gauss(mean_1: Tensor, std_1: Tensor,
     return 0.5 * torch.sum(kld_element, dim=-1) if frame_level else 0.5 * torch.sum(kld_element)
 
 
-def nll_bernoulli(theta: Tensor, x: Tensor, frame_level: bool = False) -> Tensor:
+def nll_bernoulli(theta: Tensor, x: Tensor, frame_level: bool = False, seq_level: bool = False) -> Tensor:
     """Using log-likelihood to compute NLL.
 
         If frame_level is True, then the loss is computed for each frame,
         and the shape should be (batch_size, seq_len, ch*h*w)
     """
     assert theta.dim() == x.dim(), 'theta and x must have the same dimension'
+    assert not (frame_level and seq_level), 'frame_level and seq_level cannot be both True'
+
     if frame_level:
-        assert theta.dim() == 3, 'theta and x must be of dimension 3 if frame_level is True'
-
-    nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
-
-    return - torch.sum(nll, dim=-1) if frame_level else - torch.sum(nll)
+        if theta.dim() != 3:
+            theta = rearrange(theta, 'b c t h w -> b t (c h w)')
+            x = rearrange(x, 'b c t h w -> b t (c h w)')
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        return - torch.sum(nll, dim=-1)
+    elif seq_level:
+        if theta.dim() != 2:
+            theta = rearrange(theta, 'b ... -> b (...)')
+            x = rearrange(x, 'b ... -> b (...)')
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        return - torch.sum(nll, dim=-1)
+    else:
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        return - torch.sum(nll)
 
 
 def nll_gauss(mean: Tensor, std: Tensor, x: Tensor, frame_level: bool = False) -> Tensor:

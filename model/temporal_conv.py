@@ -4,7 +4,7 @@ import numpy as np
 
 class TemporalConv1D(nn.Module):
     def __init__(self, in_channels: int, out_channels: int,
-                 activation: nn.Module = nn.ReLU(inplace=True), masked: bool = False, bias: bool = True):
+                 activation: nn.Module = nn.ReLU(inplace=True), masked: bool = False, bias: bool = False):
         super(TemporalConv1D, self).__init__()
 
         conv1d = MaskedConv1D if masked else nn.Conv1d

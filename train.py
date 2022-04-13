@@ -84,6 +84,23 @@ def train(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: to
         pbar.close()
 
 
+def train_resnet(model, train_loader: DataLoader, optimizer: torch.optim, scheduler: torch.optim.lr_scheduler,
+                 device: torch.device, epoch: int, recon_func: str, alpha: float = 1.0) -> None:
+    model.train()
+    total_loss = 0.0
+    num_samples = 0
+    loss_function = model.get_loss_function(recon_func=recon_func)
+
+    with tqdm(total=len(train_loader), desc=f'Epoch {epoch}') as pbar:
+        for data, target in train_loader:
+            normal_vid, anom_vid = data
+            normal_vid = normal_vid.to(device)
+            anom_vid = anom_vid.to(device)
+
+            scheduler.step()
+        pbar.close()
+
+
 if __name__ == '__main__':
     from model.conVRNN import ConVRNN
 

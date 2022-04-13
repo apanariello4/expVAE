@@ -4,7 +4,7 @@ from torch import Tensor
 
 class Encoder2DBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, stride: int,
-                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = True):
+                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = False):
         super(Encoder2DBlock, self).__init__()
         kernel_size = 3
         padding = 1
@@ -32,7 +32,7 @@ class Encoder2DBlock(nn.Module):
 
 class Decoder2DBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, upscale_factor: int = 2,
-                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = True):
+                 activation: nn.Module = nn.ReLU(inplace=True), bias: bool = False):
         super(Decoder2DBlock, self).__init__()
 
         self.activation = activation

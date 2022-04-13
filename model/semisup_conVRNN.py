@@ -19,17 +19,16 @@ from model.vae_loss import VRNNLoss, kld_gauss
 from model.mil_loss import RegularizedMIL
 
 
-class ConVRNN(BaseModel):
+class SemiSupConVRNN(BaseModel):
     def __init__(self, h_dim: int, latent_dim: int, activation: str,
-                 n_layers: int = 1, loss: str = 'kl', bias: bool = False, bidirectional: bool = False):
-        super(ConVRNN, self).__init__()
+                 n_layers: int = 1, bias: bool = False, bidirectional: bool = False):
+        super(SemiSupConVRNN, self).__init__()
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
         self.n_layers = n_layers
         self.bidirectional = bidirectional
-        self.name = "conVRNN"
-        self.loss = loss
+        self.name = "SemiSupConVRNN"
         self.mask = torch.from_numpy(np.load(os.path.join(base_path, 'mask.npy')))
 
         act: nn.Module = {'relu': nn.ReLU(inplace=True),
@@ -37,9 +36,6 @@ class ConVRNN(BaseModel):
                           'elu': nn.ELU(inplace=True),
                           'silu': nn.SiLU(inplace=True)}[activation]
 
-        # feature-extracting transformations
-        # input_dim -> hidden_dim
-        # channels not changed
         self.phi_x = nn.Sequential(
             Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
             Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
@@ -52,6 +48,14 @@ class ConVRNN(BaseModel):
             TemporalConv1D(32 * 8 * 8, h_dim, activation=act, masked=True),
         )
 
+        self.classifier = nn.Sequential(
+            nn.Linear(h_dim + h_dim, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.6),
+            nn.Linear(512, 1),
+            nn.Sigmoid(),
+        )
+
         self.phi_z = nn.Sequential(
             nn.Linear(latent_dim, h_dim),
             nn.ReLU())
@@ -59,7 +63,7 @@ class ConVRNN(BaseModel):
         # encoder
         self.enc = nn.Sequential(
             nn.Linear(h_dim + h_dim, h_dim),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(h_dim, h_dim),
             nn.ReLU()
         )
@@ -80,20 +84,10 @@ class ConVRNN(BaseModel):
 
         # decoder
         self.dec = nn.Sequential(
-            nn.Linear(h_dim + h_dim, h_dim),
-            nn.ReLU(),
+            nn.Linear(h_dim + h_dim + 1, h_dim),
+            nn.ReLU(inplace=True),
             nn.Linear(h_dim, h_dim),
             nn.ReLU())
-
-        # self.dec_std = nn.Sequential(
-        #     nn.Unflatten(1, (32, 2, 2)),
-        #     Decoder2DBlock(32, 32, upscale_factor=2, activation=act),  # 8x8
-        #     Decoder2DBlock(32, 16, upscale_factor=2, activation=act),  # 8x8
-        #     Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
-        #     # Decoder2DBlock(16, 16, upscale_factor=2, activation=act),  # 16x16
-        #     nn.Conv2d(16, 1, kernel_size=1, stride=1, padding=0),
-        #     nn.Softplus()
-        # )
 
         self.dec_mean = nn.Sequential(
             nn.Unflatten(1, (32, 4, 4)),
@@ -119,14 +113,13 @@ class ConVRNN(BaseModel):
             Tensor: shape (t, b, h_dim)
         """
         t, b, ch, h, w = x.size()
-        x = x.reshape(t * b, ch, h, w)
+        x = rearrange(x, 't b ch h w -> (t b) ch h w')
         x = self.phi_x(x)
         if len(x.shape) == 2:  # already flattened
-            x = x.view(t, b, -1)  # (t, b, h_dim)
-            x = x.permute(1, 2, 0)  # (b, h_dim, t) # for 1d conv
+            x = rearrange(x, '(t b) h_dim -> b h_dim t', t=t, b=b)
             x = self.temporal_conv(x)
-            x = x.permute(2, 0, 1)  # (t, b, h_dim)
-            return x
+            x = rearrange(x, 'b h_dim t -> t b h_dim')
+
         elif len(x.shape) == 4:  # not flattened
             _, ch, h, w = x.size()
             x = x.view(t, b, ch, h, w)
@@ -134,7 +127,8 @@ class ConVRNN(BaseModel):
             x = self.temporal_conv(x)
             x = x.permute(2, 0, 1, 3, 4)  # (t, b, ch, h, w)
             x = x.reshape(t, b, -1).contiguous()
-            return x
+
+        return x
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tuple[Tensor, Tensor], Tuple[Tensor, Tensor]]:
         batch, ch, seq_len, height, width = x.shape
@@ -146,6 +140,7 @@ class ConVRNN(BaseModel):
         all_enc_std = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
         all_prior_mean = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
         all_prior_std = torch.zeros(seq_len, batch, self.latent_dim, device=x.device)
+        all_labels = torch.zeros(seq_len, batch, device=x.device)
 
         x_recon = torch.zeros_like(x)
         h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
@@ -153,6 +148,7 @@ class ConVRNN(BaseModel):
         for t in range(x.size(0)):
 
             phi_x_t = phi_x[t]
+            all_labels[t] = self.classifier(torch.cat([phi_x_t, h[-1]], 1)).squeeze(1)
 
             # encoder
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
@@ -169,7 +165,7 @@ class ConVRNN(BaseModel):
             phi_z_t = self.phi_z(z_t)
 
             # decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1], all_labels[t].unsqueeze(1)], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
 
@@ -184,9 +180,10 @@ class ConVRNN(BaseModel):
 
             x_recon[t] = dec_mean_t
 
-        x_recon = x_recon.permute(1, 2, 0, 3, 4)  # b, ch, t, h, w
+        x_recon = rearrange(x_recon, 't b ch h w -> b ch t h w')
+        all_labels = rearrange(all_labels, 't b -> b t')
 
-        return x_recon, (all_enc_mean, all_enc_std), (all_prior_mean, all_prior_std)
+        return x_recon, (all_enc_mean, all_enc_std), (all_prior_mean, all_prior_std), all_labels
 
     def _set_hook_func(self) -> None:
         def func_f(module, input, f_output):
@@ -363,11 +360,11 @@ class ConVRNN(BaseModel):
 
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = ConVRNN(h_dim=512, latent_dim=512, activation='elu', bidirectional=False)
+    model = SemiSupConVRNN(h_dim=512, latent_dim=512, activation='elu', bidirectional=False)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     # model.load_state_dict(torch.load('/home/nello/expVAE/checkpoints/h_0-sample__conVRNN_03071431best.pth')['state_dict'])
     model.to(device)
     x = torch.randn(16, 1, 20, 64, 64, device=device)
 
-    rec = model.sample()
+    rec = model(x)
     print(rec.shape)
