@@ -156,7 +156,7 @@ class SemiSupConVRNN(BaseModel):
             enc_std_t = self.enc_std(enc_t)
 
             # prior
-            prior_t = self.prior(torch.cat(h[-1], all_labels[t - 1].unsqueeze(1), dim=1))
+            prior_t = self.prior(torch.cat([h[-1], all_labels[t - 1].unsqueeze(1)], dim=1))
             prior_mean_t = self.prior_mean(prior_t)
             prior_std_t = self.prior_std(prior_t)
 
