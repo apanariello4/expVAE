@@ -75,7 +75,7 @@ class SemiSupConVRNN(BaseModel):
 
         # prior
         self.prior = nn.Sequential(
-            nn.Linear(h_dim, h_dim),
+            nn.Linear(h_dim + 1, h_dim),
             nn.ReLU())
         self.prior_mean = nn.Linear(h_dim, latent_dim)
         self.prior_std = nn.Sequential(
@@ -156,7 +156,7 @@ class SemiSupConVRNN(BaseModel):
             enc_std_t = self.enc_std(enc_t)
 
             # prior
-            prior_t = self.prior(h[-1])
+            prior_t = self.prior(torch.cat(h[-1], all_labels[t - 1].unsqueeze(1), dim=1))
             prior_mean_t = self.prior_mean(prior_t)
             prior_std_t = self.prior_std(prior_t)
 
@@ -320,7 +320,7 @@ class SemiSupConVRNN(BaseModel):
         for t in range(seq_len):
             if t == 0:
                 # prior
-                prior_t = self.prior(h[-1])
+                prior_t = self.prior(torch.cat([h[-1], y], dim=1))
                 prior_mean_t = self.prior_mean(prior_t)
                 prior_std_t = self.prior_std(prior_t)
 
