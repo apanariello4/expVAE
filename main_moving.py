@@ -9,7 +9,6 @@ from test import eval, eval_anom
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, StepLR
 from torchvision.utils import save_image
 
 import wandb
@@ -21,7 +20,7 @@ from model.DSVAE import DisentangledVAE
 from model.LoCOVAE import LoCOVAE
 from train import aggregate, train
 from utils.dataset_loaders import load_moving_mnist
-from utils.utils import args, deterministic_behavior, get_alpha_scheduler, save_checkpoint
+from utils.utils import args, deterministic_behavior, get_alpha_scheduler, get_scheduler, save_checkpoint
 import torchvision
 from model.r2p1d import SmallResNet, get_model, generate_model
 from main_resnet import main_resnet
@@ -69,12 +68,7 @@ def main(args: argparse.Namespace):
     train_loader, test_loader, anom_loader = load_moving_mnist(args)
 
     optimizer = Adam(model.parameters(), lr=args.lr)
-    if args.scheduler == 'step':
-        scheduler = StepLR(optimizer, step_size=args.epochs // args.lr_steps)
-    elif args.scheduler == 'cosine':
-        scheduler = CosineAnnealingWarmRestarts(optimizer, eta_min=2e-4,
-                                                T_0=(args.epochs + 1) // 2, T_mult=1)
-
+    scheduler = get_scheduler(optimizer, args)
     best_test_loss = float('inf')
     resume_epoch = 0
 

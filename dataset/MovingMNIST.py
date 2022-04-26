@@ -143,6 +143,9 @@ class MovingMNISTMIL(data.Dataset):
             self.data_anom = np.load(test_anom_path)['anommnist']
             self.anom_labels = np.load(test_anom_labels_path)
 
+        self.n_anom_frames = (self.anom_labels == 1).sum()
+        self.n_frames = self.data_normal.shape[0] * self.data_normal.shape[1] + self.data_anom.shape[0] * self.data_anom.shape[1]
+
     def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
         norm = self.data_normal[index]
         anom = self.data_anom[index]

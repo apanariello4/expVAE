@@ -10,6 +10,7 @@ import torch
 import torchvision
 from einops import rearrange, repeat
 from torch import Tensor
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, StepLR
 
 
 def args() -> argparse.Namespace:
@@ -86,6 +87,17 @@ def get_alpha_scheduler(args: argparse.Namespace) -> torch.Tensor:
             alpha = torch.cat((alpha, torch.full((args.epochs - alpha.shape[0],), fill_value=args.alpha_max)))
 
     return alpha
+
+
+def get_scheduler(optimizer: torch.optim.Optimizer, args: argparse.Namespace):
+    if args.scheduler == 'step':
+        scheduler = StepLR(optimizer, step_size=args.epochs // args.lr_steps)
+    elif args.scheduler == 'cosine':
+        scheduler = CosineAnnealingWarmRestarts(optimizer, eta_min=2e-4,
+                                                T_0=(args.epochs + 1) // 2, T_mult=1)
+    else:
+        raise ValueError(f'Unknown scheduler {args.scheduler}')
+    return scheduler
 
 
 def deterministic_behavior(seed: int = 1) -> None:

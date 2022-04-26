@@ -1,5 +1,6 @@
 import argparse
 import datetime
+from sched import scheduler
 
 import torch
 import torch.nn as nn
@@ -11,15 +12,15 @@ from tqdm import tqdm
 
 import wandb
 from model.base_model import BaseModel
-from model.mil_loss import MIL_loss
+from model.mil_loss import MIL_loss, RegularizedMIL
 from model.vae_loss import kld_gauss, nll_bernoulli
 from utils.dataset_loaders import load_moving_mnist_mil
-from utils.utils import save_checkpoint
+from utils.utils import get_alpha_scheduler, get_scheduler, save_checkpoint
 
 
 def train_mil(model: BaseModel, train_loader: DataLoader,
               criterion: nn.Module, optimizer: torch.optim.Optimizer,
-              device: torch.device, epoch: int) -> float:
+              scheduler, device: torch.device, epoch: int, alpha: float = 1.) -> float:
     model.train()
     train_loss = .0
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
@@ -30,11 +31,12 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
 
             x_recon, *distribution, labels = model(data)
 
-            nll = nll_bernoulli(x_recon, data)
+            nll = nll_bernoulli(x_recon, data, seq_level=True)
+            masked_nll = nll * (1 - targets)
             kld = kld_gauss(*distribution[0], *distribution[1])
             mil = criterion(labels, targets)
 
-            loss = mil + nll + kld
+            loss = mil + (masked_nll.sum() + alpha * kld) / data.shape[0]
 
             optimizer.zero_grad()
             loss.backward()
@@ -44,13 +46,17 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
 
             pbar.update()
             pbar.set_postfix(last_batch_loss=loss.item(),
-                             lr=optimizer.param_groups[0]['lr'])
-
+                             lr=optimizer.param_groups[0]['lr'],
+                             mil=mil.item(),
+                             )
+        scheduler.step()
         pbar.close()
-        train_loss /= len(train_loader.dataset)
+        train_loss /= len(train_loader)
         if wandb.run:
             wandb.log({
                 'train_loss': train_loss,
+                'lr': optimizer.param_groups[0]['lr'],
+                'alpha_kl': alpha,
             }, step=epoch)
     return train_loss
 
@@ -73,15 +79,16 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
             data = data.to(device)
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
             x_recon, *distribution, labels = model(data)
-            nll = nll_bernoulli(x_recon, data)
+            nll = nll_bernoulli(x_recon, data, seq_level=True)
+            masked_nll = nll * (1 - targets)
             mil = criterion(labels, targets)
             kld = kld_gauss(*distribution[0], *distribution[1])
 
-            loss = mil + nll + kld
+            loss = mil + (masked_nll.sum() + kld) / data.shape[0]
 
             test_loss += loss.item()
-            scores_classifier_seq = labels.max(dim=1)[0].cpu().numpy()
-            roc_scores_classifier_seq += scores_classifier_seq.tolist()
+
+            roc_scores_classifier_seq += labels.max(dim=1)[0].tolist()
             roc_scores_classifier_frame += labels.reshape(-1).cpu().numpy().tolist()
 
             scores_seq_level = nll_bernoulli(x_recon, data, seq_level=True)
@@ -96,7 +103,7 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
             pbar.update()
 
         pbar.close()
-    test_loss /= len(test_loader.dataset)
+    test_loss /= len(test_loader)
 
     auc = roc_auc_score(roc_labels_seq, roc_scores_seq)
     roc_frame = roc_auc_score(roc_labels_frame, roc_scores_frame)
@@ -107,6 +114,9 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
     ap_frame = average_precision_score(roc_labels_frame, roc_scores_frame)
     ap_classifier_seq = average_precision_score(roc_labels_seq, roc_scores_classifier_seq)
     ap_classifier_frame = average_precision_score(roc_labels_frame, roc_scores_classifier_frame)
+
+    seq_norm = model.sample(anom=False)
+    seq_anom = model.sample(anom=True)
 
     if wandb.run:
         wandb.log({
@@ -119,6 +129,8 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
             'ap_classifier': ap_classifier_seq,
             'roc_classifier_frame': roc_classifier_frame,
             'ap_classifier_frame': ap_classifier_frame,
+            'seq_norm': wandb.Image(seq_norm, caption=f'Normal Sample ep_{epoch}'),
+            'seq_anom': wandb.Image(seq_anom, caption=f'Anomalous Sample ep_{epoch}'),
         }, step=epoch, commit=True)
 
     return test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame
@@ -134,16 +146,20 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     print('Loading dataset...')
     train_loader, test_loader = load_moving_mnist_mil(args)
-    criterion = MIL_loss()
+    criterion = RegularizedMIL(model)
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=args.lr,
     )
+    scheduler = get_scheduler(optimizer, args)
+    alpha = get_alpha_scheduler(args)
 
     if args.log:
         name = args.name + '_' if args.name else ''
         wandb.init(project='vrnn-mil', name=f"{name}{model.name}_{now}", config=args)
         wandb.watch(model)
+
+    print(f"No skill classifier AP on frames: {test_loader.dataset.n_anom_frames/test_loader.dataset.n_frames}")
 
     if args.test_only:
         test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame = test_mil(model, test_loader, criterion, device, epoch='test_only')
@@ -152,13 +168,13 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     best_test_loss = 1e10
     for epoch in range(args.epochs):
-        train_loss = train_mil(model, train_loader, criterion, optimizer, device, epoch)
+        train_loss = train_mil(model, train_loader, criterion, optimizer, scheduler, device, epoch, alpha[epoch])
         test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame = test_mil(model, test_loader, criterion, device, epoch)
         print(f'[{epoch}]\tTrain loss: {train_loss:.4f}\t Test loss: {test_loss:.4f}\n',
-              f'\tSequence:       ROC-AUC: {auc:.4f},                AP-AUC: {ap:.4f}',
-              f'\tFrame:            ROC-AUC: {roc_frame:.4f},            AP-AUC: {ap_frame:.4f}\n',
+              f'\tSequence:       ROC-AUC: {auc:.4f}, AP-AUC: {ap:.4f}',
+              f'    Frame:            ROC-AUC: {roc_frame:.4f}, AP-AUC: {ap_frame:.4f}\n',
               f'\tClassifier Seq: ROC-AUC: {roc_classifier_seq:.4f}, AP-AUC: {ap_classifier_seq:.4f}',
-              f'\tClassifier Frame: ROC-AUC: {roc_classifier_frame:.4f}, AP-AUC: {ap_classifier_frame:.4f}')
+              f'    Classifier Frame: ROC-AUC: {roc_classifier_frame:.4f}, AP-AUC: {ap_classifier_frame:.4f}')
 
         if args.save_checkpoint:
             if test_loss < best_test_loss or epoch == args.epochs - 1:

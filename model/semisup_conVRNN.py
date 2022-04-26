@@ -312,11 +312,11 @@ class SemiSupConVRNN(BaseModel):
         else:
             return RegularizedMIL(self)
 
-    def sample(self, seq_len: int = 20) -> Tensor:
+    def sample(self, seq_len: int = 20, anom: bool = False) -> Tensor:
 
         sequence = torch.zeros((seq_len, 1, 64, 64), device=self._device)
         h = self.h_init.expand(self.n_layers, 1, self.h_dim).contiguous()
-
+        y = torch.full((1, 1), fill_value=float(anom), device=self._device)
         for t in range(seq_len):
             if t == 0:
                 # prior
@@ -336,7 +336,7 @@ class SemiSupConVRNN(BaseModel):
             phi_z_t = self.phi_z(z_t)
 
             # decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1], y], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
 
@@ -366,5 +366,5 @@ if __name__ == '__main__':
     model.to(device)
     x = torch.randn(16, 1, 20, 64, 64, device=device)
 
-    rec = model(x)
+    rec = model.sample()
     print(rec.shape)
