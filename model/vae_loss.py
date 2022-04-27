@@ -3,7 +3,7 @@ import torch
 from torch.nn import functional as F
 from torch import Tensor
 import torch.nn as nn
-from einops import rearrange
+from einops import rearrange, reduce
 
 EPS = torch.finfo(torch.float).eps
 
@@ -91,13 +91,18 @@ class VAELoss(nn.Module):
 
 
 def kld_gauss(mean_1: Tensor, std_1: Tensor,
-              mean_2: Tensor, std_2: Tensor, frame_level: bool = False) -> Tensor:
+              mean_2: Tensor, std_2: Tensor,
+              frame_level: bool = False, seq_level: bool = False) -> Tensor:
     """Using std to compute KLD"""
 
     kld_element = (2 * torch.log(std_2 + EPS) - 2 * torch.log(std_1 + EPS) +
                    (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
                    std_2.pow(2) - 1)
-    return 0.5 * torch.sum(kld_element, dim=-1) if frame_level else 0.5 * torch.sum(kld_element)
+    if frame_level:
+        return 0.5 * torch.sum(kld_element, dim=-1)
+    elif seq_level:
+        return 0.5 * reduce(kld_element, 't seq h -> seq', reduction='sum')
+    return 0.5 * torch.sum(kld_element)
 
 
 def nll_bernoulli(theta: Tensor, x: Tensor, frame_level: bool = False, seq_level: bool = False) -> Tensor:
