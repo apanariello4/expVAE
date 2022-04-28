@@ -28,15 +28,13 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
             data = torch.cat([norm, anom], dim=0)
             data = data.to(device)
-
             x_recon, *distribution, labels = model(data)
 
             nll = nll_bernoulli(x_recon, data, seq_level=True)
-            masked_nll = nll * (1 - targets)
-            kld = kld_gauss(*distribution[0], *distribution[1])
+            kld = kld_gauss(*distribution[0], *distribution[1], seq_level=True)
             mil = criterion(labels, targets)
 
-            loss = mil + (masked_nll.sum() + alpha * kld) / data.shape[0]
+            loss = mil + (nll.sum() + alpha * kld.sum()) / data.shape[0]
 
             optimizer.zero_grad()
             loss.backward()
@@ -57,6 +55,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
                 'train_loss': train_loss,
                 'lr': optimizer.param_groups[0]['lr'],
                 'alpha_kl': alpha,
+                'recon': wandb.Image(x_recon[0].transpose(0, 1).detach().cpu(), caption='Reconstruction'),
             }, step=epoch)
     return train_loss
 
@@ -74,17 +73,19 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
     roc_scores_classifier_frame = []
     with torch.no_grad(), tqdm(desc=f"[{epoch}] Test", total=len(test_loader)) as pbar:
         for i, ((norm, anom), frame_level_labels) in enumerate(test_loader):
-            frame_level_labels = torch.cat([torch.zeros_like(frame_level_labels), frame_level_labels], dim=0)
-            data = torch.cat([norm, anom], dim=0)
-            data = data.to(device)
-            targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
+            # frame_level_labels = torch.cat([torch.zeros_like(frame_level_labels), frame_level_labels], dim=0)
+            # data = torch.cat([norm, anom], dim=0)
+            # data = data.to(device)
+            # targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
+            data = anom.to(device)
+            targets = torch.tensor([1] * len(anom), dtype=torch.float, device=device)
             x_recon, *distribution, labels = model(data)
             nll = nll_bernoulli(x_recon, data, seq_level=True)
             masked_nll = nll * (1 - targets)
-            mil = criterion(labels, targets)
-            kld = kld_gauss(*distribution[0], *distribution[1])
+            mil = 0  # criterion(labels, targets)
+            kld = kld_gauss(*distribution[0], *distribution[1], seq_level=True) * (1 - targets)
 
-            loss = mil + (masked_nll.sum() + kld) / data.shape[0]
+            loss = mil + (masked_nll.sum() + kld.sum()) / data.shape[0]
 
             test_loss += loss.item()
 
@@ -105,14 +106,14 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
         pbar.close()
     test_loss /= len(test_loader)
 
-    auc = roc_auc_score(roc_labels_seq, roc_scores_seq)
+    auc = 0  # roc_auc_score(roc_labels_seq, roc_scores_seq)
     roc_frame = roc_auc_score(roc_labels_frame, roc_scores_frame)
-    roc_classifier_seq = roc_auc_score(roc_labels_seq, roc_scores_classifier_seq)
+    roc_classifier_seq = 0  # roc_auc_score(roc_labels_seq, roc_scores_classifier_seq)
     roc_classifier_frame = roc_auc_score(roc_labels_frame, roc_scores_classifier_frame)
 
-    ap = average_precision_score(roc_labels_seq, roc_scores_seq)
+    ap = 0  # average_precision_score(roc_labels_seq, roc_scores_seq)
     ap_frame = average_precision_score(roc_labels_frame, roc_scores_frame)
-    ap_classifier_seq = average_precision_score(roc_labels_seq, roc_scores_classifier_seq)
+    ap_classifier_seq = 0  # average_precision_score(roc_labels_seq, roc_scores_classifier_seq)
     ap_classifier_frame = average_precision_score(roc_labels_frame, roc_scores_classifier_frame)
 
     seq_norm = model.sample(anom=False)
