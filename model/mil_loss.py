@@ -54,9 +54,6 @@ class RegularizedMIL(torch.nn.Module):
         self.lambda_sparsity = lambda_sparsity
 
     def forward(self, y_pred, y_true):
-        # loss
-        # Our loss is defined with respect to l2 regularization, as used in the
-        # original keras code
         fc_params = []
         for layer in self.model.classifier:
             if isinstance(layer, torch.nn.Linear):

@@ -23,12 +23,14 @@ from utils.utils import (get_alpha_scheduler, get_scheduler, print_param_num,
 
 def train_mil(model: BaseModel, train_loader: DataLoader,
               criterion: nn.Module, optimizer: torch.optim.Optimizer,
-              scheduler, device: torch.device, epoch: int, alpha: float = 1., beta: float = 1.) -> float:
+              scheduler, device: torch.device, epoch: int, masked: bool = False,
+              alpha: float = 1., beta: float = 1.) -> float:
     model.train()
     train_loss = .0
     total_mil = .0
     total_nll = .0
     total_kl = .0
+    all_labels = torch.tensor([], device=device)
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
         for i, ((norm, anom), frame_level_labels) in enumerate(train_loader):
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
@@ -40,9 +42,11 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
             kld = kld_gauss(*distribution[0], *distribution[1], seq_level=True)
             mil = criterion(labels, targets)
 
-            vrnn_loss = ((nll + alpha * kld) * (1 - targets)).sum()
+            vrnn_loss = (nll + alpha * kld)[0:len(norm)] if masked else (nll + alpha * kld)
 
-            loss = mil + beta * vrnn_loss / norm.shape[0]
+            loss = mil + beta * vrnn_loss.sum() / vrnn_loss.shape[0]
+
+            all_labels = torch.cat([all_labels, labels.detach()])
 
             optimizer.zero_grad()
             loss.backward()
@@ -60,6 +64,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
                              )
         scheduler.step()
         pbar.close()
+        print(f"mean_labels {all_labels.mean()}, std_labels {all_labels.std()}")
         train_loss /= len(train_loader)
         total_nll /= len(train_loader)
         total_kl /= len(train_loader)
@@ -78,7 +83,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
 
 def test_mil(model: BaseModel, test_loader: DataLoader,
              criterion: nn.Module, device: torch.device,
-             epoch: int, beta: float = 1.0) -> float:
+             epoch: int, masked: bool = False, beta: float = 1.0) -> float:
     model.eval()
     test_loss = .0
     roc_scores_seq = []
@@ -102,7 +107,7 @@ def test_mil(model: BaseModel, test_loader: DataLoader,
             kld = kld_gauss(*distribution[0], *distribution[1], seq_level=True)
             masked_kld = kld * (1 - targets)
 
-            loss = mil + beta * (masked_nll.sum() + masked_kld.sum()) / data.shape[0]
+            loss = mil + beta * (masked_nll.sum() + masked_kld.sum()) / norm.shape[0]
 
             test_loss += loss.item()
 
@@ -183,7 +188,7 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='vrnn-mil', name=f"{name}{model.name}_{now}", config=args)
+        wandb.init(project='vrnn-mil', name=f"{name}b{args.beta}_{model.name}_{now}", config=args)
         wandb.watch(model)
 
     print(f"No skill classifier AP on frames: {test_loader.dataset.n_anom_frames/test_loader.dataset.n_frames}")
@@ -201,8 +206,8 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     best_test_loss = 1e10
     for epoch in range(args.epochs):
-        train_loss = train_mil(model, train_loader, criterion, optimizer, scheduler, device, epoch, alpha[epoch], args.beta)
-        test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame = test_mil(model, test_loader, criterion, device, epoch)
+        train_loss = train_mil(model, train_loader, criterion, optimizer, scheduler, device, epoch, args.masked, alpha[epoch], args.beta)
+        test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame = test_mil(model, test_loader, criterion, device, epoch, args.masked)
         print(f'[{epoch}]\tTrain loss: {train_loss:.4f}\t Test loss: {test_loss:.4f}\n',
               f'\tSequence:       ROC-AUC: {auc:.4f}, AP-AUC: {ap:.4f}',
               f'    Frame:            ROC-AUC: {roc_frame:.4f}, AP-AUC: {ap_frame:.4f}\n',

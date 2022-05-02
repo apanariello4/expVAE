@@ -39,8 +39,8 @@ class SemiSupConVRNN(BaseModel):
         self.phi_x = nn.Sequential(
             Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
             Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
-            # Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
-            nn.AvgPool2d(kernel_size=2, stride=2),
+            Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
+            #nn.AvgPool2d(kernel_size=2, stride=2),
             # Encoder2DBlock(32, 64, stride=2, activation=act),  # 4x4
             nn.Flatten()
         )

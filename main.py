@@ -16,6 +16,8 @@ from torchvision.utils import save_image
 
 def main(args: argparse.Namespace):
 
+    print(args)
+
     if args.dataset == 'mnist':
         train_loader, test_loader = load_mnist_one_class(
             class_id=args.one_class, args=args)
