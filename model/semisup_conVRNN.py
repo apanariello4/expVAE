@@ -39,7 +39,8 @@ class SemiSupConVRNN(BaseModel):
         self.phi_x = nn.Sequential(
             Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
             Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
-            Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
+            # Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
+            nn.AvgPool2d(kernel_size=2, stride=2),
             # Encoder2DBlock(32, 64, stride=2, activation=act),  # 4x4
             nn.Flatten()
         )
@@ -49,16 +50,27 @@ class SemiSupConVRNN(BaseModel):
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(h_dim + h_dim, 512),
+            nn.Linear(h_dim + h_dim + h_dim, 512),
             nn.ReLU(inplace=True),
             nn.Dropout(0.6),
             nn.Linear(512, 1),
             nn.Sigmoid(),
         )
 
+        self.dec_classifier = nn.Sequential(
+            Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
+            Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 8x8
+            # Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
+            Encoder2DBlock(32, 64, stride=2, activation=act),  # 4x4
+            Encoder2DBlock(64, 128, stride=2, activation=act),  # 2x2
+            nn.Flatten()
+        )
+
         self.phi_z = nn.Sequential(
             nn.Linear(latent_dim, h_dim),
-            nn.ReLU())
+            nn.ReLU()
+        )
 
         # encoder
         self.enc = nn.Sequential(
@@ -71,23 +83,27 @@ class SemiSupConVRNN(BaseModel):
         self.enc_mean = nn.Linear(h_dim, latent_dim)
         self.enc_std = nn.Sequential(
             nn.Linear(h_dim, latent_dim),
-            nn.Softplus())
+            nn.Softplus()
+        )
 
         # prior
         self.prior = nn.Sequential(
             nn.Linear(h_dim + 1, h_dim),
-            nn.ReLU())
+            nn.ReLU()
+        )
         self.prior_mean = nn.Linear(h_dim, latent_dim)
         self.prior_std = nn.Sequential(
             nn.Linear(h_dim, latent_dim),
-            nn.Softplus())
+            nn.Softplus()
+        )
 
         # decoder
         self.dec = nn.Sequential(
             nn.Linear(h_dim + h_dim + 1, h_dim),
             nn.ReLU(inplace=True),
             nn.Linear(h_dim, h_dim),
-            nn.ReLU())
+            nn.ReLU()
+        )
 
         self.dec_mean = nn.Sequential(
             nn.Unflatten(1, (32, 4, 4)),
@@ -144,11 +160,10 @@ class SemiSupConVRNN(BaseModel):
 
         x_recon = torch.zeros_like(x)
         h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
-
+        #import matplotlib.pyplot as plt
         for t in range(x.size(0)):
 
             phi_x_t = phi_x[t]
-            all_labels[t] = self.classifier(torch.cat([phi_x_t, h[-1]], 1)).squeeze(1)
 
             # encoder
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
@@ -165,10 +180,12 @@ class SemiSupConVRNN(BaseModel):
             phi_z_t = self.phi_z(z_t)
 
             # decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1], all_labels[t].unsqueeze(1)], 1))
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1], all_labels[t - 1].unsqueeze(1)], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
-
+            abs_diff = torch.abs(x[t] - dec_mean_t)
+            abs_diff = self.dec_classifier(abs_diff)
+            all_labels[t] = self.classifier(torch.cat([phi_x_t, abs_diff, h[-1]], 1)).squeeze(1)
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
@@ -214,7 +231,7 @@ class SemiSupConVRNN(BaseModel):
         maps = torch.zeros((2 * seq, *x_recon.shape))
         h = self.h_init.expand(self.n_layers, x.shape[1], self.h_dim).contiguous()
 
-        old_conv_outputs = []
+        all_conv_outputs = []
 
         for t in range(x.size(0)):
 
@@ -222,7 +239,7 @@ class SemiSupConVRNN(BaseModel):
             phi_x_t = self.encode(x[t].unsqueeze(0)).squeeze()
 
             conv_outputs = self._get_conv_outputs(self.outputs_forward, target_layer='phi_x.2')
-            old_conv_outputs.append(conv_outputs)
+            all_conv_outputs.append(conv_outputs)
 
             # encoder
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
@@ -254,7 +271,7 @@ class SemiSupConVRNN(BaseModel):
             # # kld = kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
             # mask = torch.stack([self.mask.reshape((ch, height, width))] * batch).to(self._device)
 
-            for c, conv in enumerate(old_conv_outputs):
+            for c, conv in enumerate(all_conv_outputs):
                 grad = torch.autograd.grad(
                     outputs=z_t, inputs=conv,
                     grad_outputs=torch.ones_like(z_t), retain_graph=True, only_inputs=True)[0]
@@ -264,7 +281,7 @@ class SemiSupConVRNN(BaseModel):
                 if c == 0:
                     continue
                 grad = torch.autograd.grad(
-                    outputs=z_t_prior, inputs=old_conv_outputs[c - 1],
+                    outputs=z_t_prior, inputs=all_conv_outputs[c - 1],
                     grad_outputs=torch.ones_like(z_t_prior), retain_graph=True, only_inputs=True)[0]
 
                 maps[c + seq - 1, t] = self.get_attention_map(height, width, conv, grad, gradcam_pp=gradcam_pp)
@@ -316,11 +333,14 @@ class SemiSupConVRNN(BaseModel):
 
         sequence = torch.zeros((seq_len, 1, 64, 64), device=self._device)
         h = self.h_init.expand(self.n_layers, 1, self.h_dim).contiguous()
-        y = torch.full((1, 1), fill_value=float(anom), device=self._device)
+        random_len = torch.randint(0, 4, (1,)).item()
+        random_idx = torch.randint(1, seq_len - random_len - 1, (1,)).item()
+        y = torch.zeros((seq_len, 1), device=self._device)
+        y[random_idx:random_idx + random_len] = 1
         for t in range(seq_len):
             if t == 0:
                 # prior
-                prior_t = self.prior(torch.cat([h[-1], y], dim=1))
+                prior_t = self.prior(torch.cat([h[-1], y[t].unsqueeze(0)], dim=1))
                 prior_mean_t = self.prior_mean(prior_t)
                 prior_std_t = self.prior_std(prior_t)
 
@@ -336,7 +356,7 @@ class SemiSupConVRNN(BaseModel):
             phi_z_t = self.phi_z(z_t)
 
             # decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1], y], 1))
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1], y[t].unsqueeze(0)], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
 
@@ -367,4 +387,7 @@ if __name__ == '__main__':
     x = torch.randn(16, 1, 20, 64, 64, device=device)
 
     rec = model.sample()
+    import matplotlib.pyplot as plt
+    plt.imshow(rec[0].detach().cpu().numpy().transpose(1, 2, 0))
+    plt.show()
     print(rec.shape)

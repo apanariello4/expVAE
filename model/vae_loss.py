@@ -99,7 +99,7 @@ def kld_gauss(mean_1: Tensor, std_1: Tensor,
                    (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
                    std_2.pow(2) - 1)
     if frame_level:
-        return 0.5 * torch.sum(kld_element, dim=-1)
+        return 0.5 * reduce(kld_element, 't seq h -> seq t', reduction='sum')
     elif seq_level:
         return 0.5 * reduce(kld_element, 't seq h -> seq', reduction='sum')
     return 0.5 * torch.sum(kld_element)

@@ -27,6 +27,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--alpha-min', type=float, default=0.0)
     parser.add_argument('--alpha-max', type=float, default=1.0)
     parser.add_argument('--alpha-scheduler', type=str, default='warmup', choices=['warmup', 'cyclic'])
+    parser.add_argument('--beta', type=float, default=1.0)
     # LR
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--lr-steps', type=int, default=3)
@@ -171,3 +172,9 @@ def save_cam(image: np.ndarray, filename: str,
 
 def get_project_root() -> Path:
     return Path(__file__).parent.parent
+
+
+def print_param_num(model) -> None:
+    num_params = sum(p.numel() for p in model.parameters())
+    num_params_learn = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'{model.name} - Params: Total {num_params:,}, learnable {num_params_learn:,}')
