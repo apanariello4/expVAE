@@ -118,16 +118,16 @@ def nll_bernoulli(theta: Tensor, x: Tensor, frame_level: bool = False, seq_level
         if theta.dim() != 3:
             theta = rearrange(theta, 'b c t h w -> b t (c h w)')
             x = rearrange(x, 'b c t h w -> b t (c h w)')
-        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta + EPS)
         return - torch.sum(nll, dim=-1)
     elif seq_level:
         if theta.dim() != 2:
             theta = rearrange(theta, 'b ... -> b (...)')
             x = rearrange(x, 'b ... -> b (...)')
-        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta + EPS)
         return - torch.sum(nll, dim=-1)
     else:
-        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta - EPS)
+        nll = x * torch.log(theta + EPS) + (1 - x) * torch.log(1 - theta + EPS)
         return - torch.sum(nll)
 
 
