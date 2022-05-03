@@ -357,7 +357,7 @@ class SemiSupConVRNN(BaseModel):
             phi_z_t = self.phi_z(z_t)
 
             # decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1], y[t].unsqueeze(0)], 1))
+            dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
 
