@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import os
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -21,6 +22,16 @@ from utils.utils import (get_alpha_scheduler, get_scheduler, print_param_num,
                          save_checkpoint)
 
 
+def fill_mat_with_ones_randomly(shape: Tuple[int, int], device: torch.device,
+                                percentage: float = 0.3) -> torch.Tensor:
+    """
+    Fill a matrix with ones randomly, with a percentage of ones
+    """
+    assert 0 <= percentage <= 1, "Percentage must be between 0 and 1"
+
+    return torch.rand(shape, device=device) < percentage
+
+
 def train_mil(model: BaseModel, train_loader: DataLoader,
               criterion: nn.Module, optimizer: torch.optim.Optimizer,
               scheduler, device: torch.device, epoch: int, masked: bool = False,
@@ -33,18 +44,20 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
     all_labels = torch.tensor([], device=device)
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
         for i, ((norm, anom), frame_level_labels) in enumerate(train_loader):
+            mask = fill_mat_with_ones_randomly(frame_level_labels.shape, device=device)
+            mask = torch.cat([torch.ones_like(mask), mask], dim=0)
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
             data = torch.cat([norm, anom], dim=0)
             data = data.to(device)
             x_recon, *distribution, labels = model(data)
 
-            nll = nll_bernoulli(x_recon, data, seq_level=True)
-            kld = kld_gauss(*distribution[0], *distribution[1], seq_level=True)
-            mil = criterion(labels, targets)
+            nll = nll_bernoulli(x_recon, data, frame_level=True)
+            kld = kld_gauss(*distribution[0], *distribution[1], frame_level=True)
+            mil = criterion(labels, targets)  # if epoch > 20 else torch.tensor(0.)
 
-            vrnn_loss = (nll + alpha * kld)[0:len(norm)] if masked else (nll + alpha * kld)
+            vrnn_loss = (nll + alpha * kld) * mask if masked else (nll + alpha * kld)
 
-            loss = mil + beta * vrnn_loss.sum() / vrnn_loss.shape[0]
+            loss = mil + beta * vrnn_loss.sum() / torch.count_nonzero(vrnn_loss)
 
             all_labels = torch.cat([all_labels, labels.detach()])
 
