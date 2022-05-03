@@ -23,6 +23,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--latent-dim', type=int, default=512)
     parser.add_argument('--masked', action='store_true')
+    parser.add_argument('--mask-prob', type=float, default=0.3)
     # KLD ALPHA
     parser.add_argument('--alpha-warmup', type=int, default=10)  # if 0 no warmup
     parser.add_argument('--alpha-min', type=float, default=0.0)

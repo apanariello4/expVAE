@@ -44,9 +44,12 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
     all_labels = torch.tensor([], device=device)
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
         for i, ((norm, anom), frame_level_labels) in enumerate(train_loader):
+
             mask = fill_mat_with_ones_randomly(frame_level_labels.shape, device=device)
             mask = torch.cat([torch.ones_like(mask), mask], dim=0)
+
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
+
             data = torch.cat([norm, anom], dim=0)
             data = data.to(device)
             x_recon, *distribution, labels = model(data)
@@ -77,7 +80,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
                              )
         scheduler.step()
         pbar.close()
-        print(f"mean_labels {all_labels.mean()}, std_labels {all_labels.std()}")
+        print(f"Labels dist {all_labels.mean():.4f} \u00B1 {all_labels.std():.4f}")
         train_loss /= len(train_loader)
         total_nll /= len(train_loader)
         total_kl /= len(train_loader)
@@ -201,7 +204,7 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     if args.log:
         name = args.name + '_' if args.name else ''
-        wandb.init(project='vrnn-mil', name=f"{name}b{args.beta}_{model.name}_{now}", config=args)
+        wandb.init(project='vrnn-mil', name=f"{name}mask{args.mask_prob}%_b{args.beta}_{now}", config=args)
         wandb.watch(model)
 
     print(f"No skill classifier AP on frames: {test_loader.dataset.n_anom_frames/test_loader.dataset.n_frames}")
