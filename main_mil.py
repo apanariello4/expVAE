@@ -34,8 +34,8 @@ def fill_mat_with_ones_randomly(shape: Tuple[int, int], device: torch.device,
 
 def train_mil(model: BaseModel, train_loader: DataLoader,
               criterion: nn.Module, optimizer: torch.optim.Optimizer,
-              scheduler, device: torch.device, epoch: int, masked: bool = False,
-              alpha: float = 1., beta: float = 1.) -> float:
+              scheduler, device: torch.device, epoch: int,
+              args: argparse.Namespace, alpha: float = 1.) -> float:
     model.train()
     train_loss = .0
     total_mil = .0
@@ -45,7 +45,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
         for i, ((norm, anom), frame_level_labels) in enumerate(train_loader):
 
-            mask = fill_mat_with_ones_randomly(frame_level_labels.shape, device=device)
+            mask = fill_mat_with_ones_randomly(frame_level_labels.shape, device=device, percentage=args.mask_prob)
             mask = torch.cat([torch.ones_like(mask), mask], dim=0)
 
             targets = torch.tensor([0] * len(norm) + [1] * len(anom), dtype=torch.float, device=device)
@@ -58,9 +58,9 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
             kld = kld_gauss(*distribution[0], *distribution[1], frame_level=True)
             mil = criterion(labels, targets)  # if epoch > 20 else torch.tensor(0.)
 
-            vrnn_loss = (nll + alpha * kld) * mask if masked else (nll + alpha * kld)
+            vrnn_loss = (nll + alpha * kld) * mask if args.masked else (nll + alpha * kld)
 
-            loss = mil + beta * vrnn_loss.sum() / torch.count_nonzero(vrnn_loss)
+            loss = mil + args.beta * vrnn_loss.sum() / (len(norm) + len(anom) * args.mask_prob * args.masked)
 
             all_labels = torch.cat([all_labels, labels.detach()])
 
@@ -222,7 +222,7 @@ def main_mil(model: BaseModel, args: argparse.Namespace):
 
     best_test_loss = 1e10
     for epoch in range(args.epochs):
-        train_loss = train_mil(model, train_loader, criterion, optimizer, scheduler, device, epoch, args.masked, alpha[epoch], args.beta)
+        train_loss = train_mil(model, train_loader, criterion, optimizer, scheduler, device, epoch, args, alpha[epoch])
         test_loss, auc, ap, roc_frame, ap_frame, roc_classifier_seq, ap_classifier_seq, roc_classifier_frame, ap_classifier_frame = test_mil(model, test_loader, criterion, device, epoch, args.masked)
         print(f'[{epoch}]\tTrain loss: {train_loss:.4f}\t Test loss: {test_loss:.4f}\n',
               f'\tSequence:       ROC-AUC: {auc:.4f}, AP-AUC: {ap:.4f}',
