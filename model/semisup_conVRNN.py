@@ -52,7 +52,7 @@ class SemiSupConVRNN(BaseModel):
         self.classifier = nn.Sequential(
             nn.Linear(h_dim + h_dim + h_dim, 512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.6),
+            # nn.Dropout(0),
             nn.Linear(512, 1),
             nn.Sigmoid(),
         )
@@ -187,7 +187,7 @@ class SemiSupConVRNN(BaseModel):
             l1 = torch.abs(x[t] - dec_mean_t)
             # gt_rec_l1 = torch.cat([x[t], dec_mean_t, l1], dim=1)
             l1 = self.dec_classifier(l1)
-            all_labels[t] = self.classifier(torch.cat([phi_x_t, l1, h[-1]], 1)).squeeze(1)
+            all_labels[t] = self.classifier(torch.cat([phi_x_t, l1.detach(), h[-1]], 1)).squeeze(1)
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 

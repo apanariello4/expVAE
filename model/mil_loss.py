@@ -45,7 +45,7 @@ def custom_objective(y_pred, y_true, lambda_smoothness, lambda_sparsity):
 
 class RegularizedMIL(torch.nn.Module):
     def __init__(self, model, original_objective=custom_objective, lambda_regularization=0.001,
-                 lambda_smoothness=8e-5, lambda_sparsity=0.0):
+                 lambda_smoothness=8e-5, lambda_sparsity=8e-3):
         super(RegularizedMIL, self).__init__()
         self.lambdas = lambda_regularization
         self.model = model
