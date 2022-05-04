@@ -58,7 +58,7 @@ class SemiSupConVRNN(BaseModel):
         )
 
         self.dec_classifier = nn.Sequential(
-            Encoder2DBlock(3, 16, stride=2, activation=act),  # 32x32
+            Encoder2DBlock(1, 16, stride=2, activation=act),  # 32x32
             Encoder2DBlock(16, 32, stride=2, activation=act),  # 16x16
             nn.MaxPool2d(kernel_size=2, stride=2),  # 8x8
             # Encoder2DBlock(32, 32, stride=2, activation=act),  # 8x8
@@ -184,9 +184,10 @@ class SemiSupConVRNN(BaseModel):
             # dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
             # dec_std_t = self.dec_std(dec_t)
-            gt_rec_l1 = torch.cat([x[t], dec_mean_t, torch.abs(x[t] - dec_mean_t)], dim=1)
-            gt_rec_l1 = self.dec_classifier(gt_rec_l1)
-            all_labels[t] = self.classifier(torch.cat([phi_x_t, gt_rec_l1, h[-1]], 1)).squeeze(1)
+            l1 = torch.abs(x[t] - dec_mean_t)
+            # gt_rec_l1 = torch.cat([x[t], dec_mean_t, l1], dim=1)
+            l1 = self.dec_classifier(l1)
+            all_labels[t] = self.classifier(torch.cat([phi_x_t, l1, h[-1]], 1)).squeeze(1)
             # recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
 
