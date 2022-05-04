@@ -43,7 +43,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
     total_kl = .0
     all_labels = torch.tensor([], device=device)
     with tqdm(desc=f"[{epoch}] Train", total=len(train_loader)) as pbar:
-        for i, ((norm, anom), frame_level_labels) in enumerate(train_loader):
+        for _, ((norm, anom), frame_level_labels) in enumerate(train_loader):
 
             mask = fill_mat_with_ones_randomly(frame_level_labels.shape, device=device, percentage=args.mask_prob)
             mask = torch.cat([torch.ones_like(mask), mask], dim=0)
@@ -56,7 +56,7 @@ def train_mil(model: BaseModel, train_loader: DataLoader,
 
             nll = nll_bernoulli(x_recon, data, frame_level=True)
             kld = kld_gauss(*distribution[0], *distribution[1], frame_level=True)
-            mil = criterion(labels, targets)  # if epoch > 20 else torch.tensor(0.)
+            mil = criterion(labels, targets) if epoch >= args.mil_delay else torch.tensor(0.)
 
             vrnn_loss = (nll + alpha * kld) * mask if args.masked else (nll + alpha * kld)
 

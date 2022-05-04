@@ -24,6 +24,7 @@ def args() -> argparse.Namespace:
     parser.add_argument('--latent-dim', type=int, default=512)
     parser.add_argument('--masked', action='store_true')
     parser.add_argument('--mask-prob', type=float, default=0.3)
+    parser.add_argument('--mil-delay', type=int, default=0)
     # KLD ALPHA
     parser.add_argument('--alpha-warmup', type=int, default=10)  # if 0 no warmup
     parser.add_argument('--alpha-min', type=float, default=0.0)
