@@ -99,7 +99,7 @@ def eval_anom(model, device: torch.device, anom_loader: DataLoader,
                 zip(target.view(-1).cpu().data.numpy().tolist(),
                     anomaly_score.view(-1).cpu().data.numpy().tolist(),
                     recon_err.view(-1).cpu().data.numpy().tolist(),
-                    kld_err.view(-1).cpu().data.numpy().tolist(),
+                    kld_err.reshape(-1).cpu().data.numpy().tolist(),
                     ))
             pbar.update()
         pbar.close()

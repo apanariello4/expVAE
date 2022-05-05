@@ -99,9 +99,9 @@ def kld_gauss(mean_1: Tensor, std_1: Tensor,
                    (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
                    std_2.pow(2) - 1)
     if frame_level:
-        return 0.5 * reduce(kld_element, 't seq h -> seq t', reduction='sum')
+        return 0.5 * reduce(kld_element, 'seq_len batch h -> batch seq_len', reduction='sum')
     elif seq_level:
-        return 0.5 * reduce(kld_element, 't seq h -> seq', reduction='sum')
+        return 0.5 * reduce(kld_element, 'batch seq_len h -> seq_len', reduction='sum')
     return 0.5 * torch.sum(kld_element)
 
 
@@ -154,10 +154,10 @@ class VRNNLoss(nn.Module):
 
         nll_frame_level = nll_bernoulli(x_recon, x, frame_level=True)
 
-        mu_posterior = mu_posterior.transpose(0, 1)
-        std_posterior = std_posterior.transpose(0, 1)
-        mu_prior = mu_prior.transpose(0, 1)
-        std_prior = std_prior.transpose(0, 1)
+        # mu_posterior = mu_posterior.transpose(0, 1)
+        # std_posterior = std_posterior.transpose(0, 1)
+        # mu_prior = mu_prior.transpose(0, 1)
+        # std_prior = std_prior.transpose(0, 1)
 
         kld_frame_level = kld_gauss(mu_posterior, std_posterior,
                                     mu_prior, std_prior, frame_level=True)
