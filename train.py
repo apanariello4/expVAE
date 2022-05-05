@@ -29,8 +29,8 @@ def aggregate(model, train_loader: DataLoader,
 
             mu, logvar = distribution[0]
             recon_error, kld_error = loss_function(x_hat, data, *distribution, return_min_max=True)
-            all_recon_errors = torch.cat((all_recon_errors, recon_error.view(-1).cpu()))
-            all_kld_errors = torch.cat((all_kld_errors, kld_error.view(-1).cpu()))
+            all_recon_errors = torch.cat((all_recon_errors, recon_error.reshape(-1).cpu()))
+            all_kld_errors = torch.cat((all_kld_errors, kld_error.reshape(-1).cpu()))
             var = torch.exp(logvar)
 
             # var_agg += var.sum(dim=0)
